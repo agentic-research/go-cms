@@ -28,7 +28,7 @@ jobs:
 
     - name: Build test tool
       run: |
-        go build -o bin/signet-commit ./cmd/cms-test-tool
+        go build -o bin/cms-test-tool ./cmd/cms-test-tool
 
     - name: Run CMS headers test
       run: |
@@ -42,7 +42,7 @@ jobs:
 
     - name: Test CMS signature generation and verification
       run: |
-        echo "Test data for CMS signature" | ./bin/signet-commit -S > test.pem
+        echo "Test data for CMS signature" | ./bin/cms-test-tool -S > test.pem
 
         # Extract DER and verify with OpenSSL
         sed '1d;$d' test.pem | base64 -d > test.der

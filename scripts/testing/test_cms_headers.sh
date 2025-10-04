@@ -9,9 +9,9 @@ echo
 # Create a test message
 echo "Test commit message" > test_message.txt
 
-# Generate a test signature using signet-commit
+# Generate a test signature using cms-test-tool
 echo "1. Generating signature with current implementation (SIGNED MESSAGE header)..."
-./bin/signet-commit -S < test_message.txt > test_signature_original.pem 2>/dev/null
+./bin/cms-test-tool -S < test_message.txt > test_signature_original.pem 2>/dev/null
 
 # Display the current PEM header
 echo "Current PEM header type:"
