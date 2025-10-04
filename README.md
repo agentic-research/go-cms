@@ -157,9 +157,9 @@ The library enforces the following size limits for security:
 This is a personal, open-source project. While developed with security best practices in mind, it comes with no guarantees.
 
 For responsible disclosure of security vulnerabilities, please email me directly
-at `security@example.com` and prefix the subject with `[SECURITY]`. I will
+at jamestexasgardner [at] gmail [dot] com` and prefix the subject with `[SECURITY]`. I will
 endeavor to address all issues promptly. A formal `SECURITY.md` file will be
-created as the project matures.
+created as the project matures. You can also reach out to me via @jamestexas on Github.
 
 ## Contributing
 
