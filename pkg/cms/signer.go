@@ -343,8 +343,11 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 	}
 	buf.Write(issuerBytes)
 
-	// DigestAlgorithm
-	digestAlg := pkix.AlgorithmIdentifier{Algorithm: oidSHA256}
+	// DigestAlgorithm - Ed25519 uses NULL per RFC 8419
+	digestAlg := pkix.AlgorithmIdentifier{
+		Algorithm:  oidSHA256,
+		Parameters: asn1.NullRawValue,
+	}
 	digestAlgBytes, err := asn1.Marshal(digestAlg)
 	if err != nil {
 		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal digest algorithm", err)
@@ -389,8 +392,11 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	}
 	sdBuf.Write(versionBytes)
 
-	// DigestAlgorithms (SET OF AlgorithmIdentifier)
-	digestAlgs := []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}}
+	// DigestAlgorithms (SET OF AlgorithmIdentifier) - Ed25519 uses NULL per RFC 8419
+	digestAlgs := []pkix.AlgorithmIdentifier{{
+		Algorithm:  oidSHA256,
+		Parameters: asn1.NullRawValue,
+	}}
 	digestAlgsBytes, err := asn1.Marshal(digestAlgs)
 	if err != nil {
 		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal digest algorithms", err)

@@ -49,6 +49,9 @@ Thumbs.db
 # CRUMB - personal memory (not tracked)
 .crumb/
 
+# Claude Code settings (personal)
+.claude/
+
 # Logs from agentic workflows
 *_agent_log.md
 
