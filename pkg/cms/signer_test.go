@@ -252,7 +252,7 @@ func TestAttributeSorting(t *testing.T) {
 func TestRealCMSAttributes(t *testing.T) {
 	// Create real CMS signed attributes
 	messageDigest := bytes.Repeat([]byte{0x42}, 32) // 32-byte SHA256 hash
-	attrs := createSignedAttributes(messageDigest)
+	attrs, _ := createSignedAttributes(messageDigest, time.Now())
 
 	// Test SET encoding
 	setEncoding, err := encodeAttributesAsSet(attrs)
@@ -292,7 +292,7 @@ func TestGoldenVector(t *testing.T) {
 		0xb3, 0x1c, 0x36, 0x71, 0x1e, 0xb8, 0xd9, 0xd5,
 	}
 
-	attrs := createSignedAttributes(messageDigest)
+	attrs, _ := createSignedAttributes(messageDigest, time.Now())
 
 	// Get both encodings
 	setForSigning, err := encodeAttributesAsSet(attrs)
@@ -477,7 +477,7 @@ func TestSignatureOverCorrectData(t *testing.T) {
 
 	// Create test attributes
 	messageDigest := bytes.Repeat([]byte{0x42}, 32)
-	attrs := createSignedAttributes(messageDigest)
+	attrs, _ := createSignedAttributes(messageDigest, time.Now())
 
 	// Get SET encoding for signing (what we should sign)
 	setForSigning, err := encodeAttributesAsSet(attrs)
@@ -545,7 +545,8 @@ func TestEd25519CMSSignature(t *testing.T) {
 	// Now test with a real message for CMS
 	testMessage := []byte("Test message for CMS signature")
 
-	// Create a minimal test certificate for CMS
+	// Create a test certificate for CMS with proper fields
+	now := time.Now()
 	cert := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Issuer: pkix.Name{
@@ -554,6 +555,9 @@ func TestEd25519CMSSignature(t *testing.T) {
 		Subject: pkix.Name{
 			CommonName: "Test Signer",
 		},
+		NotBefore:          now.Add(-time.Hour),
+		NotAfter:           now.Add(24 * time.Hour),
+		PublicKeyAlgorithm: x509.Ed25519,
 	}
 
 	// Sign the message using our CMS implementation
@@ -673,9 +677,10 @@ func TestCMSEd25519GoldenVector(t *testing.T) {
 			Organization:       []string{"Example Org"},
 			OrganizationalUnit: []string{"Testing"},
 		},
-		NotBefore: time.Date(2017, 8, 13, 10, 10, 15, 0, time.UTC), // Would need exact time
-		NotAfter:  time.Date(2027, 8, 13, 10, 10, 15, 0, time.UTC),
-		KeyUsage:  x509.KeyUsageDigitalSignature,
+		NotBefore:          time.Date(2017, 8, 13, 10, 10, 15, 0, time.UTC), // Would need exact time
+		NotAfter:           time.Date(2027, 8, 13, 10, 10, 15, 0, time.UTC),
+		KeyUsage:           x509.KeyUsageDigitalSignature,
+		PublicKeyAlgorithm: x509.Ed25519,
 	}
 
 	// Note: Our current implementation doesn't produce a full certificate,
@@ -731,11 +736,12 @@ func TestSignDataInputValidation(t *testing.T) {
 	}
 
 	validCert := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "Test"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
+		SerialNumber:       big.NewInt(1),
+		Subject:            pkix.Name{CommonName: "Test"},
+		NotBefore:          time.Now().Add(-time.Hour),
+		NotAfter:           time.Now().Add(time.Hour),
+		KeyUsage:           x509.KeyUsageDigitalSignature,
+		PublicKeyAlgorithm: x509.Ed25519,
 	}
 
 	validData := []byte("test message")

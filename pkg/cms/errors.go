@@ -68,10 +68,19 @@ type ValidationError struct {
 }
 
 func (e *ValidationError) Error() string {
+	var msg string
 	if e.Value != "" {
-		return fmt.Sprintf("validation error: field %s with value '%s' is invalid: %s", e.Field, e.Value, e.Reason)
+		msg = fmt.Sprintf("validation error: field %s with value '%s' is invalid: %s", e.Field, e.Value, e.Reason)
+	} else {
+		msg = fmt.Sprintf("validation error: field %s is invalid: %s", e.Field, e.Reason)
 	}
-	return fmt.Sprintf("validation error: field %s is invalid: %s", e.Field, e.Reason)
+
+	// Include wrapped error if present for better error context
+	if e.Wrapped != nil {
+		msg = fmt.Sprintf("%s: %v", msg, e.Wrapped)
+	}
+
+	return msg
 }
 
 func (e *ValidationError) Unwrap() error {

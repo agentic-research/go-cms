@@ -139,6 +139,15 @@ The library provides two main functions:
 
 For detailed API documentation, see [pkg.go.dev](https://pkg.go.dev/github.com/jamestexas/go-cms/pkg/cms).
 
+## Limits
+
+The library enforces the following size limits for security:
+
+- **Maximum CMS signature size**: 1MB (prevents memory exhaustion from malformed signatures)
+- **Maximum certificate size**: 64KB (standard X.509 certificates are typically 1-4KB)
+- **Supported digest algorithm**: SHA-256 only (MD5 and SHA-1 are rejected)
+- **Supported signature algorithm**: Ed25519 only
+
 ## Security
 
 This is a personal, open-source project. While developed with security best practices in mind, it comes with no guarantees.

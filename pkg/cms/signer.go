@@ -2,6 +2,24 @@
 //
 // This package fills a gap in the Go ecosystem as existing CMS libraries
 // (mozilla/pkcs7, cloudflare/cfssl) do not support Ed25519 signatures.
+//
+// # Security Considerations
+//
+// Time Security: The signing time attribute is included in the CMS signature
+// and is cryptographically protected. However, the accuracy depends on the
+// security of the time source. For production use, provide a TimeSource
+// synchronized with a trusted NTP server or use a hardware-based secure time
+// source via SignDataWithOptions.
+//
+// Private Key Memory: Go's garbage collector does not guarantee that memory
+// containing sensitive data will be zeroed before being reused or released.
+// Private keys passed to SignData will remain in memory until garbage collected,
+// and there is no way to force immediate clearing of this memory. For high-security
+// environments requiring guaranteed key material erasure from memory, consider:
+//   - Using hardware security modules (HSMs) that keep keys in secure hardware
+//   - Using platform-specific memory protection mechanisms
+//   - Minimizing the time private keys are held in memory
+//   - Using short-lived signing keys
 package cms
 
 import (
@@ -15,6 +33,8 @@ import (
 	"math/big"
 	"sort"
 	"time"
+
+	"github.com/jamestexas/go-cms/pkg/cms/internal"
 )
 
 // OID definitions for CMS/PKCS#7
@@ -28,10 +48,44 @@ var (
 	oidEd25519                = asn1.ObjectIdentifier{1, 3, 101, 112}
 )
 
+// TimeSource provides the current time for signature generation.
+// Implementations can provide secure time sources (NTP, trusted time servers)
+// or fixed times for testing.
+//
+// Security Note: The signing time is included in the signed attributes and
+// is cryptographically protected by the signature. However, the accuracy of
+// this time depends on the security of the time source. For high-security
+// applications, use a trusted time source synchronized with a reliable NTP server
+// or a hardware-based secure time source.
+//
+// Example implementation:
+//
+//	type SecureTimeSource struct{}
+//
+//	func (s *SecureTimeSource) Now() time.Time {
+//	    // Query trusted NTP server or hardware time source
+//	    return getSecureTime()
+//	}
+type TimeSource interface {
+	// Now returns the current time to be used for signature generation.
+	Now() time.Time
+}
+
+// SignOptions provides optional parameters for signature generation.
+type SignOptions struct {
+	// TimeSource provides the time to use for the signing time attribute.
+	// If nil, time.Now() is used. For production use, consider using a
+	// secure time source synchronized with a trusted time server.
+	TimeSource TimeSource
+}
+
 // SignData creates a detached CMS/PKCS#7 signature using Ed25519.
 //
 // This function implements RFC 5652 (CMS) with RFC 8410 (Ed25519 in CMS).
 // The signature is detached (does not include the original data).
+//
+// For more control over signature generation (e.g., custom time sources),
+// use SignDataWithOptions.
 //
 // Parameters:
 //   - data: The data to be signed
@@ -41,6 +95,23 @@ var (
 // Returns:
 //   - DER-encoded CMS/PKCS#7 signature
 func SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey) ([]byte, error) {
+	return SignDataWithOptions(data, cert, privateKey, SignOptions{})
+}
+
+// SignDataWithOptions creates a detached CMS/PKCS#7 signature using Ed25519 with custom options.
+//
+// This function implements RFC 5652 (CMS) with RFC 8410 (Ed25519 in CMS).
+// The signature is detached (does not include the original data).
+//
+// Parameters:
+//   - data: The data to be signed
+//   - cert: The X.509 certificate containing the public key
+//   - privateKey: The Ed25519 private key for signing
+//   - opts: Optional parameters for signature generation
+//
+// Returns:
+//   - DER-encoded CMS/PKCS#7 signature
+func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey, opts SignOptions) ([]byte, error) {
 	// Input validation
 	if cert == nil {
 		return nil, NewValidationError("certificate", "nil", "must not be nil", nil)
@@ -57,30 +128,62 @@ func SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey
 		return nil, NewValidationError("data", "nil", "must not be nil", nil)
 	}
 
+	// Validate certificate is currently valid
+	now := time.Now()
+	if opts.TimeSource != nil {
+		now = opts.TimeSource.Now()
+	}
+	if cert.NotAfter.Before(now) {
+		return nil, NewValidationError("certificate",
+			fmt.Sprintf("expired at %s", cert.NotAfter),
+			"certificate has expired", nil)
+	}
+	if cert.NotBefore.After(now) {
+		return nil, NewValidationError("certificate",
+			fmt.Sprintf("not valid until %s", cert.NotBefore),
+			"certificate is not yet valid", nil)
+	}
+
+	// Validate certificate uses Ed25519
+	if cert.PublicKeyAlgorithm != x509.Ed25519 {
+		return nil, NewValidationError("certificate.PublicKeyAlgorithm",
+			cert.PublicKeyAlgorithm.String(),
+			"must be Ed25519", nil)
+	}
+
 	// 1. Calculate message digest
 	hash := crypto.SHA256.New()
 	hash.Write(data)
 	messageDigest := hash.Sum(nil)
 
-	// 2. Create signed attributes
-	signedAttrs := createSignedAttributes(messageDigest)
+	// 2. Determine signing time
+	signingTime := time.Now()
+	if opts.TimeSource != nil {
+		signingTime = opts.TimeSource.Now()
+	}
+
+	// 3. Create signed attributes
+	signedAttrs, err := createSignedAttributes(messageDigest, signingTime)
+	if err != nil {
+		return nil, err
+	}
 
 	// 3. Encode attributes as SET for signing (with SET tag)
 	setForSigning, err := encodeAttributesAsSet(signedAttrs)
 	if err != nil {
-		return nil, NewSignatureError("cms", "failed to encode attributes as SET", err)
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to encode attributes as SET", err)
 	}
 
 	// 4. Sign the SET OF attributes
 	signature := ed25519.Sign(privateKey, setForSigning)
 	if signature == nil {
-		return nil, NewSignatureError("cms", "failed to create signature", nil)
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to create signature", nil)
 	}
 
 	// 5. Encode attributes as [0] IMPLICIT for storage in SignerInfo
 	implicitAttrs, err := encodeSignedAttributesImplicit(signedAttrs)
 	if err != nil {
-		return nil, NewSignatureError("cms", "failed to encode attributes as IMPLICIT", err)
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to encode attributes as IMPLICIT", err)
 	}
 
 	// 6. Build SignerInfo with the IMPLICIT encoded attributes
@@ -105,11 +208,22 @@ type attribute struct {
 }
 
 // createSignedAttributes creates the signed attributes for CMS
-func createSignedAttributes(messageDigest []byte) []attribute {
+func createSignedAttributes(messageDigest []byte, signingTime time.Time) ([]attribute, error) {
 	// Encode attribute values - each must be wrapped in a SET
-	contentTypeValue, _ := asn1.Marshal(oidData)
-	messageDigestValue, _ := asn1.Marshal(messageDigest)
-	signingTimeValue, _ := asn1.Marshal(time.Now().UTC())
+	contentTypeValue, err := asn1.Marshal(oidData)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal content type OID", err)
+	}
+
+	messageDigestValue, err := asn1.Marshal(messageDigest)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal message digest", err)
+	}
+
+	signingTimeValue, err := asn1.Marshal(signingTime.UTC())
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal signing time", err)
+	}
 
 	return []attribute{
 		{
@@ -139,7 +253,7 @@ func createSignedAttributes(messageDigest []byte) []attribute {
 				Bytes:      messageDigestValue,
 			},
 		},
-	}
+	}, nil
 }
 
 // encodeAttributesAsSet creates a proper SET OF Attribute for signing
@@ -231,7 +345,10 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 	var buf bytes.Buffer
 
 	// Version (INTEGER 1)
-	versionBytes, _ := asn1.Marshal(1)
+	versionBytes, err := asn1.Marshal(1)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal SignerInfo version", err)
+	}
 	buf.Write(versionBytes)
 
 	// IssuerAndSerialNumber
@@ -244,13 +361,16 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 	}
 	issuerBytes, err := asn1.Marshal(issuerAndSerial)
 	if err != nil {
-		return nil, err
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal issuerAndSerialNumber", err)
 	}
 	buf.Write(issuerBytes)
 
 	// DigestAlgorithm
 	digestAlg := pkix.AlgorithmIdentifier{Algorithm: oidSHA256}
-	digestAlgBytes, _ := asn1.Marshal(digestAlg)
+	digestAlgBytes, err := asn1.Marshal(digestAlg)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal digest algorithm", err)
+	}
 	buf.Write(digestAlgBytes)
 
 	// SignedAttrs as IMPLICIT [0] SET OF Attribute - use the pre-encoded bytes
@@ -258,11 +378,17 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 
 	// SignatureAlgorithm
 	sigAlg := pkix.AlgorithmIdentifier{Algorithm: oidEd25519}
-	sigAlgBytes, _ := asn1.Marshal(sigAlg)
+	sigAlgBytes, err := asn1.Marshal(sigAlg)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal signature algorithm", err)
+	}
 	buf.Write(sigAlgBytes)
 
 	// Signature (OCTET STRING)
-	sigBytes, _ := asn1.Marshal(signature)
+	sigBytes, err := asn1.Marshal(signature)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal signature bytes", err)
+	}
 	buf.Write(sigBytes)
 
 	// Wrap in SEQUENCE
@@ -279,12 +405,18 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	var sdBuf bytes.Buffer
 
 	// Version (INTEGER 1)
-	versionBytes, _ := asn1.Marshal(1)
+	versionBytes, err := asn1.Marshal(1)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal SignedData version", err)
+	}
 	sdBuf.Write(versionBytes)
 
 	// DigestAlgorithms (SET OF AlgorithmIdentifier)
 	digestAlgs := []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}}
-	digestAlgsBytes, _ := asn1.Marshal(digestAlgs)
+	digestAlgsBytes, err := asn1.Marshal(digestAlgs)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal digest algorithms", err)
+	}
 	// Change SEQUENCE to SET tag
 	if len(digestAlgsBytes) > 0 && digestAlgsBytes[0] == 0x30 {
 		digestAlgsBytes[0] = 0x31
@@ -299,7 +431,10 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 		ContentType: oidData,
 		// Content omitted for detached signature
 	}
-	encapBytes, _ := asn1.Marshal(encapContent)
+	encapBytes, err := asn1.Marshal(encapContent)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal encapsulated content info", err)
+	}
 	sdBuf.Write(encapBytes)
 
 	// Certificates [0] IMPLICIT SET OF Certificate
@@ -342,7 +477,10 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	var ciBuf bytes.Buffer
 
 	// ContentType (OBJECT IDENTIFIER)
-	contentTypeBytes, _ := asn1.Marshal(oidSignedData)
+	contentTypeBytes, err := asn1.Marshal(oidSignedData)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to marshal content type OID", err)
+	}
 	ciBuf.Write(contentTypeBytes)
 
 	// Content [0] EXPLICIT

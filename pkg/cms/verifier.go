@@ -3,6 +3,12 @@
 // This package provides RFC 5652 compliant verification of CMS/PKCS#7 signatures
 // using Ed25519 keys, which is unique among Go CMS implementations.
 //
+// # Security Considerations
+//
+// Memory Security: For memory security considerations when handling private keys
+// in verification contexts (e.g., when using HSMs or secure enclaves for signing),
+// see the signer package documentation.
+//
 // Example usage:
 //
 //	// Read CMS signature and data
@@ -35,6 +41,8 @@ import (
 	"fmt"
 	"math/big"
 	"time"
+
+	"github.com/jamestexas/go-cms/pkg/cms/internal"
 )
 
 // ASN.1 tag constants for better readability
@@ -90,13 +98,36 @@ type issuerAndSerialNumber struct {
 	SerialNumber *big.Int
 }
 
+// RevocationChecker provides an interface for checking certificate revocation status.
+// Implementations can use CRL, OCSP, or other revocation mechanisms.
+//
+// Example implementation:
+//
+//	type MyRevocationChecker struct{}
+//
+//	func (c *MyRevocationChecker) CheckRevocation(cert *x509.Certificate) error {
+//	    // Check CRL or OCSP
+//	    if isRevoked(cert) {
+//	        return fmt.Errorf("certificate %s is revoked", cert.SerialNumber)
+//	    }
+//	    return nil
+//	}
+type RevocationChecker interface {
+	// CheckRevocation checks if a certificate has been revoked.
+	// Returns an error if the certificate is revoked or if the check fails.
+	// Returns nil if the certificate is valid and not revoked.
+	CheckRevocation(cert *x509.Certificate) error
+}
+
 // VerifyOptions allows specifying verification parameters
 type VerifyOptions struct {
-	Roots         *x509.CertPool     // Trusted root certificates
-	Intermediates *x509.CertPool     // Intermediate certificates
-	CurrentTime   time.Time          // Time for validation (default: time.Now())
-	TimeFunc      func() time.Time   // Optional time source for testing (overrides CurrentTime)
-	KeyUsages     []x509.ExtKeyUsage // Required key usages
+	Roots             *x509.CertPool     // Trusted root certificates
+	Intermediates     *x509.CertPool     // Intermediate certificates
+	CurrentTime       time.Time          // Time for validation (default: time.Now())
+	TimeFunc          func() time.Time   // Optional time source for testing (overrides CurrentTime)
+	KeyUsages         []x509.ExtKeyUsage // Required key usages
+	RevocationChecker RevocationChecker  // Optional revocation checker (CRL/OCSP)
+	MaxSignatureSize  int64              // Maximum signature size in bytes (default: 10MB, prevents DoS)
 }
 
 // parseContentInfo parses and validates the outer ContentInfo structure
@@ -341,19 +372,36 @@ func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certi
 		verifyOpts.CurrentTime = time.Now()
 	}
 
-	// NOTE: Certificate revocation checking (CRL/OCSP) is intentionally not performed here.
-	// Signet follows an offline-first design principle where:
-	// - Short-lived certificates (5 minutes) minimize the window for compromised keys
-	// - Epoch-based revocation happens at the token level (see ADR-001)
-	// - Network dependencies would break offline operation
-	// If certificate revocation is critical for your use case, implement it at the CA level
-	// or use the VerifyOptions hooks to add custom revocation checking.
+	// Perform revocation checking if a checker is provided
+	if opts.RevocationChecker != nil {
+		// Check revocation for the signer certificate
+		if err := opts.RevocationChecker.CheckRevocation(signerCert); err != nil {
+			certInfo := fmt.Sprintf("subject=%s, serial=%s", signerCert.Subject, signerCert.SerialNumber)
+			return nil, NewValidationError("certificate", certInfo,
+				fmt.Sprintf("revocation check failed: %v", err), err)
+		}
+	}
+
+	// Perform X.509 chain validation
 	chains, err := signerCert.Verify(verifyOpts)
 	if err != nil {
 		// Include certificate details for debugging
 		certInfo := fmt.Sprintf("subject=%s, serial=%s", signerCert.Subject, signerCert.SerialNumber)
 		return nil, NewValidationError("certificate", certInfo,
 			fmt.Sprintf("chain validation failed: %v", err), err)
+	}
+
+	// Check revocation for all certificates in the chain if a checker is provided
+	if opts.RevocationChecker != nil {
+		for _, chain := range chains {
+			for _, cert := range chain {
+				if err := opts.RevocationChecker.CheckRevocation(cert); err != nil {
+					certInfo := fmt.Sprintf("subject=%s, serial=%s", cert.Subject, cert.SerialNumber)
+					return nil, NewValidationError("certificate", certInfo,
+						fmt.Sprintf("revocation check failed: %v", err), err)
+				}
+			}
+		}
 	}
 
 	return chains, nil
@@ -399,7 +447,7 @@ func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
 	// Note: This is not strictly necessary for comparing public digests,
 	// but we keep it for consistency and defensive programming
 	if subtle.ConstantTimeCompare(messageDigest, h[:]) != 1 {
-		return NewSignatureError("cms",
+		return NewSignatureError(internal.SigTypeCMS,
 			"message digest mismatch", nil)
 	}
 
@@ -433,12 +481,12 @@ func prepareDataForVerification(si *signerInfo, detachedData []byte) ([]byte, er
 func performSignatureVerification(signerCert *x509.Certificate, dataToVerify []byte, signature []byte) error {
 	pubKey, ok := signerCert.PublicKey.(ed25519.PublicKey)
 	if !ok {
-		return NewKeyError("verify", "public",
+		return NewKeyError(internal.OpVerify, internal.KeyTypePublic,
 			fmt.Errorf("expected Ed25519 key, got %T", signerCert.PublicKey))
 	}
 
 	if !ed25519.Verify(pubKey, dataToVerify, signature) {
-		return NewSignatureError("cms",
+		return NewSignatureError(internal.SigTypeCMS,
 			"Ed25519 verification failed", nil)
 	}
 
@@ -460,6 +508,17 @@ func performSignatureVerification(signerCert *x509.Certificate, dataToVerify []b
 //   - The validated certificate chain (signer cert first, then intermediates)
 //   - An error if verification fails at any step
 func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Certificate, error) {
+	// Enforce maximum signature size to prevent DoS attacks
+	maxSize := opts.MaxSignatureSize
+	if maxSize == 0 {
+		maxSize = internal.MaxSignatureSize // Default: 1MB
+	}
+	if int64(len(cmsSignature)) > maxSize {
+		return nil, NewValidationError("signature size",
+			fmt.Sprintf("%d bytes", len(cmsSignature)),
+			fmt.Sprintf("exceeds maximum allowed size of %d bytes", maxSize), nil)
+	}
+
 	// Step 1: Parse ContentInfo
 	ci, err := parseContentInfo(cmsSignature)
 	if err != nil {
@@ -767,16 +826,44 @@ func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
 			if !sid.Issuer[i][j].Type.Equal(certIssuer[i][j].Type) {
 				return false
 			}
-			// Compare values as strings
-			sidValue := fmt.Sprintf("%v", sid.Issuer[i][j].Value)
-			certValue := fmt.Sprintf("%v", certIssuer[i][j].Value)
-			if sidValue != certValue {
+			// Use constant-time comparison for RDN values
+			if !constantTimeCompareRDNValue(sid.Issuer[i][j].Value, certIssuer[i][j].Value) {
 				return false
 			}
 		}
 	}
 
 	return true
+}
+
+// constantTimeCompareRDNValue performs constant-time comparison of RDN attribute values.
+// RDN values can be strings, byte slices, or other types. This function normalizes them
+// to byte slices and performs constant-time comparison to prevent timing attacks.
+func constantTimeCompareRDNValue(a, b interface{}) bool {
+	// Convert both values to byte slices for comparison
+	aBytes := normalizeRDNValue(a)
+	bBytes := normalizeRDNValue(b)
+
+	// Perform constant-time comparison
+	// If lengths differ, still compare to avoid timing leaks
+	if len(aBytes) != len(bBytes) {
+		return false
+	}
+	return subtle.ConstantTimeCompare(aBytes, bBytes) == 1
+}
+
+// normalizeRDNValue converts an RDN attribute value to a byte slice for comparison.
+// This handles the various types that can appear in X.509 Distinguished Names.
+func normalizeRDNValue(v interface{}) []byte {
+	switch val := v.(type) {
+	case string:
+		return []byte(val)
+	case []byte:
+		return val
+	default:
+		// For other types (int, etc.), use fmt.Sprintf as fallback
+		return []byte(fmt.Sprintf("%v", val))
+	}
 }
 
 // extractDigestFromAttribute extracts the digest value from an attribute's SET wrapper
