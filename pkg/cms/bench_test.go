@@ -21,7 +21,7 @@ func BenchmarkCMSSignature(b *testing.B) {
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			Organization: []string{"Signet"},
+			Organization: []string{"Test Org"},
 			CommonName:   "Test Signer",
 		},
 		NotBefore:    time.Now(),
@@ -59,7 +59,7 @@ func BenchmarkCMSSignatureParallel(b *testing.B) {
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			Organization: []string{"Signet"},
+			Organization: []string{"Test Org"},
 			CommonName:   "Test Signer",
 		},
 		NotBefore:    time.Now(),

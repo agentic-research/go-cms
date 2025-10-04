@@ -364,8 +364,8 @@ func TestSignDataCertificatesImplicitEncoding(t *testing.T) {
 
 	template := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "Signet Regression"},
-		Issuer:                pkix.Name{CommonName: "Signet Regression"},
+		Subject:               pkix.Name{CommonName: "CMS Test Signer"},
+		Issuer:                pkix.Name{CommonName: "CMS Test Signer"},
 		NotBefore:             now.Add(-time.Minute),
 		NotAfter:              now.Add(5 * time.Minute),
 		KeyUsage:              x509.KeyUsageDigitalSignature,

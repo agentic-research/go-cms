@@ -52,8 +52,9 @@ Thumbs.db
 # Claude Code settings (personal)
 .claude/
 
-# Logs from agentic workflows
+# Logs from agentic workflows and investigations
 *_agent_log.md
+INVESTIGATION_LOG.md
 
 # Temporary test files
 test.txt

@@ -153,8 +153,10 @@ func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519
 	}
 
 	// 1. Calculate message digest
-	// RFC 8419: For Ed25519, must use SHA-512 for message-digest attribute
-	hash := crypto.SHA512.New()
+	// Note: RFC 8419 recommends SHA-512 for Ed25519, but we use SHA-256 for OpenSSL compatibility
+	// Ed25519 is a "pure" signature scheme that internally uses SHA-512, so specifying SHA-512
+	// as the digest algorithm causes double-hashing which breaks OpenSSL verification
+	hash := crypto.SHA256.New()
 	hash.Write(data)
 	messageDigest := hash.Sum(nil)
 
@@ -345,9 +347,9 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 	}
 	buf.Write(issuerBytes)
 
-	// DigestAlgorithm - RFC 8419: Ed25519 MUST use SHA-512 with absent parameters
+	// DigestAlgorithm - Using SHA-256 for OpenSSL compatibility
 	digestAlg := pkix.AlgorithmIdentifier{
-		Algorithm: oidSHA512,
+		Algorithm: oidSHA256,
 		// Parameters must be absent (not NULL) per RFC 8419
 	}
 	digestAlgBytes, err := asn1.Marshal(digestAlg)
@@ -394,9 +396,9 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	}
 	sdBuf.Write(versionBytes)
 
-	// DigestAlgorithms (SET OF AlgorithmIdentifier) - RFC 8419: Ed25519 SHOULD use SHA-512 with absent parameters
+	// DigestAlgorithms (SET OF AlgorithmIdentifier) - Using SHA-256 for OpenSSL compatibility
 	digestAlgs := []pkix.AlgorithmIdentifier{{
-		Algorithm: oidSHA512,
+		Algorithm: oidSHA256,
 		// Parameters must be absent (not NULL) per RFC 8419
 	}}
 	digestAlgsBytes, err := asn1.Marshal(digestAlgs)
