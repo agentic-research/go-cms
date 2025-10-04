@@ -1,5 +1,7 @@
 # 🛡️ go-cms
 
+[![Version](https://img.shields.io/badge/version-v0.0.1-blue.svg)](https://github.com/jamestexas/go-cms/releases/tag/v0.0.1)
+
 **A personal Go library for CMS/PKCS#7 with Ed25519 support.**
 
 `go-cms` provides an idiomatic Go interface for creating and parsing
@@ -20,6 +22,8 @@ Existing Go CMS libraries ([mozilla/pkcs7](https://github.com/mozilla-services/p
 - **Zero Dependencies**: Relies only on the Go standard library and `golang.org/x/crypto`.
 
 ## Status
+
+**Current version: v0.0.1**
 
 The library is functional and the API is stable. All tests pass, including OpenSSL interoperability verification.
 
