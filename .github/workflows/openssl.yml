@@ -1,0 +1,65 @@
+name: OpenSSL Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  openssl-test:
+    name: OpenSSL Compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Install OpenSSL 3.0+
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openssl
+        openssl version
+
+    - name: Build test tool
+      run: |
+        go build -o bin/signet-commit ./cmd/cms-test-tool
+
+    - name: Run CMS headers test
+      run: |
+        chmod +x ./scripts/testing/test_cms_headers.sh
+        ./scripts/testing/test_cms_headers.sh
+
+    - name: Run OpenSSL verify test
+      run: |
+        chmod +x ./scripts/testing/test_openssl_verify.sh
+        ./scripts/testing/test_openssl_verify.sh
+
+    - name: Test CMS signature generation and verification
+      run: |
+        echo "Test data for CMS signature" | ./bin/signet-commit -S > test.pem
+
+        # Extract DER and verify with OpenSSL
+        sed '1d;$d' test.pem | base64 -d > test.der
+        echo "Test data for CMS signature" > test_data.txt
+
+        # Verify with OpenSSL (detached signature)
+        openssl cms -verify -inform DER -in test.der -content test_data.txt -noverify -binary
+
+        # Show ASN.1 structure
+        openssl asn1parse -inform DER -in test.der -i | head -20
+
+    - name: Upload test artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openssl-test-artifacts
+        path: |
+          *.pem
+          *.der
+          *.txt
