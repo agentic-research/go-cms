@@ -34,6 +34,7 @@ package cms
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/subtle"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -61,6 +62,7 @@ const (
 var (
 	oidMD5  = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 5}
 	oidSHA1 = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
+	// oidSHA512 is defined in signer.go
 )
 
 // ASN.1 structures for CMS/PKCS#7 parsing
@@ -184,10 +186,10 @@ func validateDigestAlgorithms(sd *signedData) error {
 			return NewValidationError("DigestAlgorithm",
 				"SHA-1", "weak algorithm not supported", nil)
 		}
-		// Only SHA-256 is currently supported
-		if !alg.Algorithm.Equal(oidSHA256) {
+		// SHA-256 and SHA-512 are supported (SHA-512 required for Ed25519)
+		if !alg.Algorithm.Equal(oidSHA256) && !alg.Algorithm.Equal(oidSHA512) {
 			return NewValidationError("DigestAlgorithm",
-				alg.Algorithm.String(), "only SHA-256 is supported", nil)
+				alg.Algorithm.String(), "only SHA-256 and SHA-512 are supported", nil)
 		}
 	}
 	return nil
@@ -206,9 +208,10 @@ func validateSignerInfo(sd *signedData) (*signerInfo, error) {
 	si := &sd.SignerInfos[0]
 
 	// Verify digest algorithm is supported
-	if !si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
+	// For Ed25519, RFC 8419 requires SHA-512
+	if !si.DigestAlgorithm.Algorithm.Equal(oidSHA256) && !si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
 		return nil, NewValidationError("DigestAlgorithm",
-			si.DigestAlgorithm.Algorithm.String(), "expected SHA-256", nil)
+			si.DigestAlgorithm.Algorithm.String(), "expected SHA-256 or SHA-512", nil)
 	}
 
 	// RFC 5652 Section 5.1: Verify signer's digest algorithm is in SignedData digest algorithms
@@ -440,13 +443,24 @@ func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
 			"attribute not found in SignedAttributes", nil)
 	}
 
-	// Calculate expected digest
-	h := sha256.Sum256(detachedData)
+	// Calculate expected digest based on algorithm
+	// Need to determine which hash algorithm was used
+	var expectedDigest []byte
+	if si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
+		h := sha256.Sum256(detachedData)
+		expectedDigest = h[:]
+	} else if si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
+		h := sha512.Sum512(detachedData)
+		expectedDigest = h[:]
+	} else {
+		return NewValidationError("DigestAlgorithm",
+			si.DigestAlgorithm.Algorithm.String(), "unsupported algorithm", nil)
+	}
 
 	// Constant-time comparison for defense in depth
 	// Note: This is not strictly necessary for comparing public digests,
 	// but we keep it for consistency and defensive programming
-	if subtle.ConstantTimeCompare(messageDigest, h[:]) != 1 {
+	if subtle.ConstantTimeCompare(messageDigest, expectedDigest) != 1 {
 		return NewSignatureError(internal.SigTypeCMS,
 			"message digest mismatch", nil)
 	}
@@ -473,8 +487,17 @@ func prepareDataForVerification(si *signerInfo, detachedData []byte) ([]byte, er
 	}
 
 	// No SignedAttrs: signature is over content hash directly
-	h := sha256.Sum256(detachedData)
-	return h[:], nil
+	// Need to determine which hash algorithm was used
+	if si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
+		h := sha256.Sum256(detachedData)
+		return h[:], nil
+	} else if si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
+		h := sha512.Sum512(detachedData)
+		return h[:], nil
+	} else {
+		return nil, NewValidationError("DigestAlgorithm",
+			si.DigestAlgorithm.Algorithm.String(), "unsupported algorithm", nil)
+	}
 }
 
 // performSignatureVerification verifies the Ed25519 signature

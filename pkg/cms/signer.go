@@ -45,6 +45,7 @@ var (
 	oidAttributeMessageDigest = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 4}
 	oidAttributeSigningTime   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 5}
 	oidSHA256                 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}
+	oidSHA512                 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 3} // RFC 8419 requirement for Ed25519
 	oidEd25519                = asn1.ObjectIdentifier{1, 3, 101, 112}
 )
 
@@ -152,7 +153,8 @@ func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519
 	}
 
 	// 1. Calculate message digest
-	hash := crypto.SHA256.New()
+	// RFC 8419: For Ed25519, must use SHA-512 for message-digest attribute
+	hash := crypto.SHA512.New()
 	hash.Write(data)
 	messageDigest := hash.Sum(nil)
 
@@ -343,10 +345,10 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 	}
 	buf.Write(issuerBytes)
 
-	// DigestAlgorithm - Ed25519 uses NULL per RFC 8419
+	// DigestAlgorithm - RFC 8419: Ed25519 MUST use SHA-512 with absent parameters
 	digestAlg := pkix.AlgorithmIdentifier{
-		Algorithm:  oidSHA256,
-		Parameters: asn1.NullRawValue,
+		Algorithm: oidSHA512,
+		// Parameters must be absent (not NULL) per RFC 8419
 	}
 	digestAlgBytes, err := asn1.Marshal(digestAlg)
 	if err != nil {
@@ -392,10 +394,10 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	}
 	sdBuf.Write(versionBytes)
 
-	// DigestAlgorithms (SET OF AlgorithmIdentifier) - Ed25519 uses NULL per RFC 8419
+	// DigestAlgorithms (SET OF AlgorithmIdentifier) - RFC 8419: Ed25519 SHOULD use SHA-512 with absent parameters
 	digestAlgs := []pkix.AlgorithmIdentifier{{
-		Algorithm:  oidSHA256,
-		Parameters: asn1.NullRawValue,
+		Algorithm: oidSHA512,
+		// Parameters must be absent (not NULL) per RFC 8419
 	}}
 	digestAlgsBytes, err := asn1.Marshal(digestAlgs)
 	if err != nil {
