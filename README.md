@@ -1,26 +1,14 @@
 # 🛡️ go-cms
 
-**A Go library for CMS/PKCS#7 with Ed25519 support.**
-
-<p align="center">
-    <a href="https://goreportcard.com/badge/github.com/jamestexas/go-cms">
-        <img src="https://goreportcard.com/badge/github.com/jamestexas/go-cms" alt="Go Report Card">
-    </a>
-    <a href="https://github.com/jamestexas/go-cms/actions">
-        <img src="https://github.com/jamestexas/go-cms/actions/workflows/test.yml/badge.svg" alt="Tests">
-    </a>
-    <a href="https://pkg.go.dev/github.com/jamestexas/go-cms">
-        <img src="https://pkg.go.dev/badge/github.com/jamestexas/go-cms.svg" alt="Go Reference">
-    </a>
-</p>
+**A personal Go library for CMS/PKCS#7 with Ed25519 support.**
 
 `go-cms` provides an idiomatic Go interface for creating and parsing
 Cryptographic Message Syntax (CMS) messages, as specified in
 [RFC 5652](https://tools.ietf.org/html/rfc5652).
 
-This library was created to bridge the gap between the established world of PKI
-and modern cryptographic algorithms, providing the **first open-source Go
-implementation for creating CMS messages signed with Ed25519**.
+Existing Go CMS libraries ([mozilla/pkcs7](https://github.com/mozilla-services/pkcs7), [github.com/cloudflare/cfssl](https://github.com/cloudflare/cfssl)) do not support Ed25519 signatures. This library fills that gap with an implementation that **passes OpenSSL verification** for Ed25519-signed CMS messages.
+
+> ⚠️ **Important**: This is an unreviewed personal project. While it passes OpenSSL interoperability tests, it has not undergone formal security review. Use at your own discretion.
 
 ## Features
 
@@ -31,9 +19,9 @@ implementation for creating CMS messages signed with Ed25519**.
 - **Well-Tested**: A high ratio of tests to code, including round-trip and interoperability tests.
 - **Zero Dependencies**: Relies only on the Go standard library and `golang.org/x/crypto`.
 
-## Status: ⚠️ Pre-v1.0
+## Status
 
-The library is functional and the API is considered stable, but it has not yet undergone a formal third-party security audit. Please use with this in mind. The project is tracking towards a `v1.0.0` release.
+The library is functional and the API is stable. All tests pass, including OpenSSL interoperability verification.
 
 ## Installation
 
