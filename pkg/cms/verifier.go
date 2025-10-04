@@ -688,23 +688,8 @@ func unwrapContext0(data []byte) []byte {
 
 // wrapAsSet wraps content with a SET OF tag (0x31) and proper length encoding
 func wrapAsSet(content []byte) []byte {
-	result := []byte{tagSet} // SET tag
-
-	// Add length encoding
-	length := len(content)
-	if length < 128 {
-		result = append(result, byte(length))
-	} else if length < 256 {
-		result = append(result, 0x81, byte(length))
-	} else if length < 65536 {
-		result = append(result, 0x82, byte(length>>8), byte(length))
-	} else {
-		// Very large structures
-		result = append(result, 0x83, byte(length>>16), byte(length>>8), byte(length))
-	}
-
-	// Add content
-	return append(result, content...)
+	header := internal.MarshalSetHeader(len(content))
+	return append(header, content...)
 }
 
 // parseSignedAttributes parses IMPLICIT [0] SignedAttrs back into attribute structures

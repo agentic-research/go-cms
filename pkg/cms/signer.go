@@ -282,19 +282,8 @@ func encodeAttributesAsSet(attrs []attribute) ([]byte, error) {
 	content := buf.Bytes()
 
 	// Step 4: Create SET with tag 0x31
-	result := []byte{0x31} // SET tag
-
-	// Add length
-	if len(content) < 128 {
-		result = append(result, byte(len(content)))
-	} else if len(content) < 256 {
-		result = append(result, 0x81, byte(len(content)))
-	} else {
-		result = append(result, 0x82, byte(len(content)>>8), byte(len(content)))
-	}
-
-	// Add content
-	result = append(result, content...)
+	header := internal.MarshalSetHeader(len(content))
+	result := append(header, content...)
 	return result, nil
 }
 
@@ -324,19 +313,8 @@ func encodeSignedAttributesImplicit(attrs []attribute) ([]byte, error) {
 	content := buf.Bytes()
 
 	// Step 4: Create [0] IMPLICIT (replaces SET tag with context tag)
-	result := []byte{0xA0} // Context-specific, constructed, tag 0
-
-	// Add length
-	if len(content) < 128 {
-		result = append(result, byte(len(content)))
-	} else if len(content) < 256 {
-		result = append(result, 0x81, byte(len(content)))
-	} else {
-		result = append(result, 0x82, byte(len(content)>>8), byte(len(content)))
-	}
-
-	// Add content (no SET tag, just the concatenated attributes)
-	result = append(result, content...)
+	header := internal.MarshalImplicitHeader(len(content))
+	result := append(header, content...)
 	return result, nil
 }
 
