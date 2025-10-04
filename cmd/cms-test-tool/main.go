@@ -82,6 +82,7 @@ func signData() error {
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
 		BasicConstraintsValid: true,
+		PublicKeyAlgorithm:    x509.Ed25519,
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, template, pubKey, privKey)
