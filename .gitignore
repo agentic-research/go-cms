@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-
+*.crumb/** */
 # Test binary, built with `go test -c`
 *.test
 
@@ -27,6 +27,36 @@ go.work.sum
 # env file
 .env
 
+# Build artifacts and binaries
+/bin/
+/dist/
+/build/
+/cms-test-tool
+*.test
+!Dockerfile.test
+
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# CRUMB - personal memory (not tracked)
+.crumb/
+
+# Claude Code settings (personal)
+.claude/
+
+# Logs from agentic workflows and investigations
+*_agent_log.md
+INVESTIGATION_LOG.md
+
+# Temporary test files
+test.txt
+*.sig
+*.pem

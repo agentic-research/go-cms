@@ -1,0 +1,6 @@
+MD033:
+  allowed_elements:
+    - p
+    - h1
+    - a
+    - img
