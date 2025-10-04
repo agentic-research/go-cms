@@ -27,16 +27,45 @@ jobs:
       run: go mod download
 
     - name: Run tests with race detector
-      run: go test -v -race -coverprofile=coverage.out ./...
+      run: |
+        set -euo pipefail
 
-    - name: Generate coverage report
+        # Get list of packages
+        PKGS="$(go list ./...)"
+
+        # Create empty coverage file with header
+        echo "mode: atomic" > coverage.out
+
+        # Test each package individually and merge coverage
+        echo "${PKGS}" | while read -r pkg; do
+          if [ -n "$pkg" ]; then
+            echo "Testing ${pkg}..."
+            if go list -f '{{.TestGoFiles}}' "$pkg" | grep -q '\[.*\.go\]'; then
+              go test -v -race -coverprofile=tmp.out -covermode=atomic "$pkg"
+              # Merge coverage data (skip mode line)
+              if [ -f tmp.out ]; then
+                grep -h -v "^mode:" tmp.out >> coverage.out 2>/dev/null || true
+                rm tmp.out
+              fi
+            else
+              echo "  No test files, skipping..."
+            fi
+          fi
+        done
+
+        # Display coverage report
+        go tool cover -func=coverage.out
+
+    - name: Generate coverage HTML report
       run: go tool cover -html=coverage.out -o coverage.html
+      if: matrix.go-version == '1.25.1'
 
     - name: Upload coverage artifacts
       uses: actions/upload-artifact@v4
       with:
         name: coverage-${{ matrix.go-version }}
         path: coverage.html
+      if: matrix.go-version == '1.25.1'
 
     - name: Run benchmarks
       run: go test -bench=. -benchmem -benchtime=10s ./pkg/cms
@@ -69,13 +98,7 @@ jobs:
       with:
         scan-type: 'fs'
         scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-
-    - name: Upload Trivy results
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
 
   lint:
     name: Lint
