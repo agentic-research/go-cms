@@ -55,6 +55,7 @@ Thumbs.db
 # Logs from agentic workflows and investigations
 *_agent_log.md
 INVESTIGATION_LOG.md
+experiments/*
 
 # Temporary test files
 test.txt
