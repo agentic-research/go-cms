@@ -154,7 +154,7 @@ The implementation includes comprehensive tests:
 
 ## Known Limitations
 
-1. **SHA-256 Digest Algorithm**: RFC 8419 recommends SHA-512 for Ed25519 in CMS, but this implementation uses SHA-256 for OpenSSL compatibility. Ed25519 is a "pure" signature scheme that internally uses SHA-512, so specifying SHA-512 as the digest algorithm causes double-hashing which breaks OpenSSL verification.
+1. **SHA-256 Digest Algorithm**: RFC 8419 recommends SHA-512 for Ed25519 in CMS. However, this implementation uses SHA-256 for OpenSSL compatibility. Ed25519 is a "pure" signature scheme that internally uses SHA-512. Specifying SHA-512 as the digest algorithm causes double-hashing, which breaks OpenSSL verification.
 2. **Self-Signed Certificates**: Examples use self-signed certificates; production deployments should use proper CA infrastructure
 3. **No Revocation**: CRL/OCSP not implemented
 4. **Ed25519 Only**: Currently supports Ed25519 signatures only (no RSA, ECDSA, or Ed448)
