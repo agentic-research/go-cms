@@ -56,7 +56,7 @@ Thumbs.db
 *_agent_log.md
 INVESTIGATION_LOG.md
 experiments/*
- */
+
 # Temporary test files
 test.txt
 *.sig
