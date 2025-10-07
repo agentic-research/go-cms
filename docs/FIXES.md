@@ -12,12 +12,14 @@
 - ✅ Test: TestVerifyRejectMissingContentType
 - ✅ Test: TestVerifyRejectMismatchedContentType
 
-### 2. Default EKU = CodeSigning
-**Location:** `pkg/cms/verifier.go:369-371` (verifyCertificateChain)
-**Fix:**
-- Default to `[]ExtKeyUsage{ExtKeyUsageCodeSigning}`
-- Allow override via VerifyOptions.KeyUsages
-- Fail closed
+### ✅ 2. Default EKU = CodeSigning [COMPLETED]
+**Location:** `pkg/cms/verifier.go:380-386` (verifyCertificateChain)
+**Status:** FIXED in verifier.go:380-386
+- ✅ Default to `[]ExtKeyUsage{ExtKeyUsageCodeSigning}`
+- ✅ Allow override via VerifyOptions.KeyUsages
+- ✅ Fail closed policy
+- ✅ Test: TestVerifyRejectTLSCertWithDefaultEKU
+- ✅ Test: TestVerifyAcceptTLSCertWithOverride
 
 ### ✅ 3. Duplicate Attributes Rejection [COMPLETED]
 **Location:** `pkg/cms/verifier.go:447-450` (parseSignedAttributes)
@@ -102,7 +104,7 @@ SkipTimeValidation: false             // (add this option)
 - ✅ Duplicate message-digest
 - ✅ Ed25519 with garbage params (accept NULL or absent)
 - ✅ Non-canonical SET order
-- ❌ TLS cert with default EKU policy
+- ✅ TLS cert with default EKU policy
 
 **Legend:** ✅ covered, ❌ needed
 
@@ -116,9 +118,10 @@ SkipTimeValidation: false             // (add this option)
 - ✅ SET order validation (verifier.go:429-445)
 - ✅ Ed25519 params check (verifier.go:238-247)
 
-### Commit 2: Verifier EKU defaults
-- Default EKU = CodeSigning
-- Update VerifyOptions to fail closed
+### ✅ Commit 2: Verifier EKU defaults [COMPLETED]
+- ✅ Default EKU = CodeSigning (verifier.go:380-386)
+- ✅ Update VerifyOptions to fail closed
+- ✅ Override capability via KeyUsages option
 
 ### Commit 3: Signer enhancements
 - Digest policy option
