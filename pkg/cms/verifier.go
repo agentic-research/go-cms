@@ -123,13 +123,14 @@ type RevocationChecker interface {
 
 // VerifyOptions allows specifying verification parameters
 type VerifyOptions struct {
-	Roots             *x509.CertPool     // Trusted root certificates
-	Intermediates     *x509.CertPool     // Intermediate certificates
-	CurrentTime       time.Time          // Time for validation (default: time.Now())
-	TimeFunc          func() time.Time   // Optional time source for testing (overrides CurrentTime)
-	KeyUsages         []x509.ExtKeyUsage // Required key usages
-	RevocationChecker RevocationChecker  // Optional revocation checker (CRL/OCSP)
-	MaxSignatureSize  int64              // Maximum signature size in bytes (default: 10MB, prevents DoS)
+	Roots              *x509.CertPool     // Trusted root certificates
+	Intermediates      *x509.CertPool     // Intermediate certificates
+	CurrentTime        time.Time          // Time for validation (default: time.Now())
+	TimeFunc           func() time.Time   // Optional time source for testing (overrides CurrentTime)
+	SkipTimeValidation bool               // Skip certificate expiry validation (for ephemeral certs in Git commits)
+	KeyUsages          []x509.ExtKeyUsage // Required key usages
+	RevocationChecker  RevocationChecker  // Optional revocation checker (CRL/OCSP)
+	MaxSignatureSize   int64              // Maximum signature size in bytes (default: 10MB, prevents DoS)
 }
 
 // parseContentInfo parses and validates the outer ContentInfo structure
@@ -368,8 +369,13 @@ func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certi
 	if len(opts.KeyUsages) > 0 {
 		verifyOpts.KeyUsages = opts.KeyUsages
 	}
-	// Use TimeFunc if provided, otherwise CurrentTime, otherwise time.Now()
-	if opts.TimeFunc != nil {
+
+	// Handle time validation
+	if opts.SkipTimeValidation {
+		// Use cert's NotBefore + 1 second to bypass expiry checks
+		// This validates chain of trust without requiring cert to be unexpired
+		verifyOpts.CurrentTime = signerCert.NotBefore.Add(1 * time.Second)
+	} else if opts.TimeFunc != nil {
 		verifyOpts.CurrentTime = opts.TimeFunc()
 	} else if verifyOpts.CurrentTime.IsZero() {
 		verifyOpts.CurrentTime = time.Now()
