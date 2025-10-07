@@ -377,9 +377,12 @@ func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certi
 			verifyOpts.Intermediates.AddCert(c)
 		}
 	}
-	// Only set KeyUsages if explicitly provided
+	// Default to CodeSigning EKU unless explicitly overridden
+	// Fail closed: require code signing unless caller specifies otherwise
 	if len(opts.KeyUsages) > 0 {
 		verifyOpts.KeyUsages = opts.KeyUsages
+	} else {
+		verifyOpts.KeyUsages = []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning}
 	}
 
 	// Handle time validation

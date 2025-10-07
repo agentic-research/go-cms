@@ -72,10 +72,9 @@ func TestVerifyRejectMissingContentType(t *testing.T) {
 	roots := x509.NewCertPool()
 	roots.AddCert(cert)
 
-	// Temporarily bypass EKU validation (Commit 2 will add default EKU enforcement)
+	// Default EKU = CodeSigning (cert has CodeSigning EKU, so this will pass EKU check)
 	_, err := Verify(cmsBytes, data, VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots: roots,
 	})
 
 	if err == nil {
@@ -148,8 +147,7 @@ func TestVerifyRejectMismatchedContentType(t *testing.T) {
 	roots.AddCert(cert)
 
 	_, err := Verify(cmsBytes, data, VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots: roots,
 	})
 
 	if err == nil {
@@ -224,8 +222,7 @@ func TestVerifyRejectDuplicateMessageDigest(t *testing.T) {
 	roots.AddCert(cert)
 
 	_, err := Verify(cmsBytes, data, VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots: roots,
 	})
 
 	if err == nil {
@@ -300,8 +297,7 @@ func TestVerifyRejectDuplicateContentType(t *testing.T) {
 	roots.AddCert(cert)
 
 	_, err := Verify(cmsBytes, data, VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots: roots,
 	})
 
 	if err == nil {
@@ -389,8 +385,7 @@ func TestVerifyRejectNonCanonicalSetOrder(t *testing.T) {
 	roots.AddCert(cert)
 
 	_, err := Verify(cmsBytes, data, VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots: roots,
 	})
 
 	if err == nil {
@@ -439,8 +434,7 @@ func TestVerifyRejectEd25519GarbageParams(t *testing.T) {
 	roots.AddCert(cert)
 
 	_, err := Verify(corruptedCMS, data, VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots: roots,
 	})
 
 	if err == nil {
@@ -490,12 +484,91 @@ func TestVerifyAcceptEd25519NullParams(t *testing.T) {
 
 	// Should ACCEPT per RFC 8410
 	_, err := Verify(modifiedCMS, data, VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		Roots: roots,
 	})
 
 	if err != nil {
 		t.Errorf("Should accept Ed25519 with NULL params (RFC 8410), got error: %v", err)
+	}
+}
+
+// TestVerifyRejectTLSCertWithDefaultEKU validates that certificates with
+// only TLS ServerAuth EKU are rejected when using default EKU policy
+func TestVerifyRejectTLSCertWithDefaultEKU(t *testing.T) {
+	_, privKey, _ := ed25519.GenerateKey(rand.Reader)
+
+	// Create cert with ONLY ServerAuth EKU (no CodeSigning)
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "TLS Server"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, // TLS only
+	}
+	certDER, _ := x509.CreateCertificate(rand.Reader, cert, cert, privKey.Public(), privKey)
+	cert, _ = x509.ParseCertificate(certDER)
+
+	data := []byte("test data")
+
+	// Sign with valid CMS structure
+	sig, err := SignData(data, cert, privKey)
+	if err != nil {
+		t.Fatalf("Failed to sign: %v", err)
+	}
+
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+
+	// Should REJECT: default EKU = CodeSigning, but cert only has ServerAuth
+	_, err = Verify(sig, data, VerifyOptions{
+		Roots: roots,
+	})
+
+	if err == nil {
+		t.Fatal("Expected error for TLS cert with default EKU policy, got nil")
+	}
+
+	// Error should mention EKU or key usage
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "ExtKeyUsage") && !strings.Contains(errMsg, "key usage") {
+		t.Errorf("Expected EKU-related error, got: %v", err)
+	}
+}
+
+// TestVerifyAcceptTLSCertWithOverride validates that TLS certs can be accepted
+// when explicitly overriding the EKU policy
+func TestVerifyAcceptTLSCertWithOverride(t *testing.T) {
+	_, privKey, _ := ed25519.GenerateKey(rand.Reader)
+
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "TLS Server"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	certDER, _ := x509.CreateCertificate(rand.Reader, cert, cert, privKey.Public(), privKey)
+	cert, _ = x509.ParseCertificate(certDER)
+
+	data := []byte("test data")
+	sig, err := SignData(data, cert, privKey)
+	if err != nil {
+		t.Fatalf("Failed to sign: %v", err)
+	}
+
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+
+	// Should ACCEPT: explicitly allow ServerAuth
+	_, err = Verify(sig, data, VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+
+	if err != nil {
+		t.Errorf("Should accept TLS cert when EKU explicitly overridden, got: %v", err)
 	}
 }
 
