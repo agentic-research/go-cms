@@ -128,7 +128,7 @@ type VerifyOptions struct {
 	Intermediates      *x509.CertPool     // Intermediate certificates
 	CurrentTime        time.Time          // Time for validation (default: time.Now())
 	TimeFunc           func() time.Time   // Optional time source for testing (overrides CurrentTime)
-	SkipTimeValidation bool               // Skip certificate expiry validation (for ephemeral certs in Git commits)
+	SkipTimeValidation bool               // Skip certificate expiry validation (useful for ephemeral certificate scenarios, e.g., short-lived certs in automation or Git commits)
 	KeyUsages          []x509.ExtKeyUsage // Required key usages
 	RevocationChecker  RevocationChecker  // Optional revocation checker (CRL/OCSP)
 	MaxSignatureSize   int64              // Maximum signature size in bytes (default: 10MB, prevents DoS)
