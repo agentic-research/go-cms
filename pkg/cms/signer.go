@@ -85,8 +85,10 @@ type SignOptions struct {
 	// Default: crypto.SHA256 (recommended for Ed25519 OpenSSL compatibility)
 	//
 	// Note: Ed25519 is a "pure" signature scheme that internally uses SHA-512.
-	// Using SHA-512 as the digest algorithm causes double-hashing which breaks
-	// OpenSSL verification. SHA-256 is recommended for interoperability.
+	// Using SHA-512 as the digest algorithm causes double-hashing, which breaks
+	// verification in OpenSSL's CMS implementation. This is an OpenSSL CMS-specific
+	// issue, not a general cryptographic limitation of Ed25519. SHA-256 is recommended
+	// for interoperability with OpenSSL CMS.
 	DigestAlgorithm crypto.Hash
 
 	// IntermediateCerts are additional certificates to include in the CMS structure.
