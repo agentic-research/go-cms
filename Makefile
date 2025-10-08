@@ -50,9 +50,8 @@ docker-build:
 
 docker-test:
 	docker build --no-cache -f scripts/testing/docker/Dockerfile -t go-cms-test .
-	@echo "Note: OpenSSL 3.x has known limitations with Ed25519 CMS verification"
-	@echo "The library generates valid CMS structures, but OpenSSL verification may fail"
-	docker run --rm go-cms-test || echo "⚠️  OpenSSL verification tests failed (known OpenSSL 3.x Ed25519 limitation)"
+	@echo "Running OpenSSL 3.x interoperability tests..."
+	docker run --rm go-cms-test
 
 docker-shell: docker-build
 	docker run --rm -it go-cms-test bash
