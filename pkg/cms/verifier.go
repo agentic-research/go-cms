@@ -32,6 +32,7 @@
 package cms
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -62,7 +63,7 @@ const (
 var (
 	oidMD5  = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 5}
 	oidSHA1 = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
-	// oidSHA512 is defined in signer.go
+	// oidSHA256, oidSHA384, oidSHA512, oidAttributeContentType, oidAttributeMessageDigest, oidData are defined in signer.go
 )
 
 // ASN.1 structures for CMS/PKCS#7 parsing
@@ -123,13 +124,14 @@ type RevocationChecker interface {
 
 // VerifyOptions allows specifying verification parameters
 type VerifyOptions struct {
-	Roots             *x509.CertPool     // Trusted root certificates
-	Intermediates     *x509.CertPool     // Intermediate certificates
-	CurrentTime       time.Time          // Time for validation (default: time.Now())
-	TimeFunc          func() time.Time   // Optional time source for testing (overrides CurrentTime)
-	KeyUsages         []x509.ExtKeyUsage // Required key usages
-	RevocationChecker RevocationChecker  // Optional revocation checker (CRL/OCSP)
-	MaxSignatureSize  int64              // Maximum signature size in bytes (default: 10MB, prevents DoS)
+	Roots              *x509.CertPool     // Trusted root certificates
+	Intermediates      *x509.CertPool     // Intermediate certificates
+	CurrentTime        time.Time          // Time for validation (default: time.Now())
+	TimeFunc           func() time.Time   // Optional time source for testing (overrides CurrentTime)
+	SkipTimeValidation bool               // Skip certificate expiry validation (useful for ephemeral certificate scenarios, e.g., short-lived certs in automation or Git commits)
+	KeyUsages          []x509.ExtKeyUsage // Required key usages
+	RevocationChecker  RevocationChecker  // Optional revocation checker (CRL/OCSP)
+	MaxSignatureSize   int64              // Maximum signature size in bytes (default: 10MB, prevents DoS)
 }
 
 // parseContentInfo parses and validates the outer ContentInfo structure
@@ -186,10 +188,10 @@ func validateDigestAlgorithms(sd *signedData) error {
 			return NewValidationError("DigestAlgorithm",
 				"SHA-1", "weak algorithm not supported", nil)
 		}
-		// SHA-256 and SHA-512 are supported (SHA-512 required for Ed25519)
-		if !alg.Algorithm.Equal(oidSHA256) && !alg.Algorithm.Equal(oidSHA512) {
+		// SHA-256, SHA-384, and SHA-512 are supported
+		if !alg.Algorithm.Equal(oidSHA256) && !alg.Algorithm.Equal(oidSHA384) && !alg.Algorithm.Equal(oidSHA512) {
 			return NewValidationError("DigestAlgorithm",
-				alg.Algorithm.String(), "only SHA-256 and SHA-512 are supported", nil)
+				alg.Algorithm.String(), "only SHA-256, SHA-384, and SHA-512 are supported", nil)
 		}
 	}
 	return nil
@@ -208,10 +210,12 @@ func validateSignerInfo(sd *signedData) (*signerInfo, error) {
 	si := &sd.SignerInfos[0]
 
 	// Verify digest algorithm is supported
-	// For Ed25519, RFC 8419 requires SHA-512
-	if !si.DigestAlgorithm.Algorithm.Equal(oidSHA256) && !si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
+	// SHA-256, SHA-384, and SHA-512 are supported (RFC 8419 recommends SHA-512 for Ed25519)
+	if !si.DigestAlgorithm.Algorithm.Equal(oidSHA256) &&
+		!si.DigestAlgorithm.Algorithm.Equal(oidSHA384) &&
+		!si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
 		return nil, NewValidationError("DigestAlgorithm",
-			si.DigestAlgorithm.Algorithm.String(), "expected SHA-256 or SHA-512", nil)
+			si.DigestAlgorithm.Algorithm.String(), "expected SHA-256, SHA-384, or SHA-512", nil)
 	}
 
 	// RFC 5652 Section 5.1: Verify signer's digest algorithm is in SignedData digest algorithms
@@ -232,6 +236,17 @@ func validateSignerInfo(sd *signedData) (*signerInfo, error) {
 	if !si.SignatureAlgorithm.Algorithm.Equal(oidEd25519) {
 		return nil, NewValidationError("SignatureAlgorithm",
 			si.SignatureAlgorithm.Algorithm.String(), "expected Ed25519", nil)
+	}
+
+	// RFC 8410: Ed25519 parameters SHOULD be absent, but MUST accept NULL
+	// Reject any other values (e.g., garbage data)
+	if len(si.SignatureAlgorithm.Parameters.FullBytes) > 0 {
+		// Check if it's NULL (tag 0x05, length 0x00)
+		if !bytes.Equal(si.SignatureAlgorithm.Parameters.FullBytes, []byte{0x05, 0x00}) {
+			return nil, NewValidationError("SignatureAlgorithm.Parameters",
+				fmt.Sprintf("%x", si.SignatureAlgorithm.Parameters.FullBytes),
+				"Ed25519 parameters must be absent or NULL", nil)
+		}
 	}
 
 	return si, nil
@@ -364,12 +379,20 @@ func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certi
 			verifyOpts.Intermediates.AddCert(c)
 		}
 	}
-	// Only set KeyUsages if explicitly provided
+	// Default to CodeSigning EKU unless explicitly overridden
+	// Fail closed: require code signing unless caller specifies otherwise
 	if len(opts.KeyUsages) > 0 {
 		verifyOpts.KeyUsages = opts.KeyUsages
+	} else {
+		verifyOpts.KeyUsages = []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning}
 	}
-	// Use TimeFunc if provided, otherwise CurrentTime, otherwise time.Now()
-	if opts.TimeFunc != nil {
+
+	// Handle time validation
+	if opts.SkipTimeValidation {
+		// Use cert's NotBefore + 1 second to bypass expiry checks
+		// This validates chain of trust without requiring cert to be unexpired
+		verifyOpts.CurrentTime = signerCert.NotBefore.Add(1 * time.Second)
+	} else if opts.TimeFunc != nil {
 		verifyOpts.CurrentTime = opts.TimeFunc()
 	} else if verifyOpts.CurrentTime.IsZero() {
 		verifyOpts.CurrentTime = time.Now()
@@ -411,7 +434,7 @@ func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certi
 }
 
 // verifyMessageDigest verifies the message digest in signed attributes if present
-func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
+func verifyMessageDigest(si *signerInfo, detachedData []byte, expectedContentType asn1.ObjectIdentifier) error {
 	if len(si.SignedAttrs.FullBytes) == 0 {
 		return nil // No signed attributes, nothing to verify
 	}
@@ -423,10 +446,36 @@ func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
 			"failed to parse", err)
 	}
 
-	// Find and verify message digest
+	// Validate DER SET ordering
+	if err := validateAttributeSetOrder(si.SignedAttrs.FullBytes); err != nil {
+		return err
+	}
+
+	// Track seen attributes to detect duplicates
+	seen := make(map[string]bool)
 	var messageDigest []byte
-	var foundDigest bool
+	var foundDigest, foundContentType bool
+	var contentType asn1.ObjectIdentifier
+
 	for _, attr := range attrs {
+		// Check for duplicates
+		oidKey := attr.Type.String()
+		if seen[oidKey] {
+			return NewValidationError("SignedAttributes", oidKey,
+				"duplicate attribute", nil)
+		}
+		seen[oidKey] = true
+
+		// Extract content-type
+		if attr.Type.Equal(oidAttributeContentType) {
+			if _, err := asn1.Unmarshal(attr.Value.Bytes, &contentType); err != nil {
+				return NewValidationError("ContentType", "",
+					"failed to parse", err)
+			}
+			foundContentType = true
+		}
+
+		// Extract message-digest
 		if attr.Type.Equal(oidAttributeMessageDigest) {
 			messageDigest, err = extractDigestFromAttribute(attr.Value)
 			if err != nil {
@@ -434,8 +483,13 @@ func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
 					"failed to extract", err)
 			}
 			foundDigest = true
-			break
 		}
+	}
+
+	// RFC 5652 Section 5.3: content-type and message-digest are REQUIRED
+	if !foundContentType {
+		return NewValidationError("ContentType", "",
+			"attribute not found in SignedAttributes (RFC 5652 Section 5.3)", nil)
 	}
 
 	if !foundDigest {
@@ -443,11 +497,19 @@ func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
 			"attribute not found in SignedAttributes", nil)
 	}
 
+	// Verify content-type matches EncapContentInfo
+	if !contentType.Equal(expectedContentType) {
+		return NewValidationError("ContentType", contentType.String(),
+			fmt.Sprintf("does not match EncapContentInfo.ContentType (%s)", expectedContentType.String()), nil)
+	}
+
 	// Calculate expected digest based on algorithm
-	// Need to determine which hash algorithm was used
 	var expectedDigest []byte
 	if si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
 		h := sha256.Sum256(detachedData)
+		expectedDigest = h[:]
+	} else if si.DigestAlgorithm.Algorithm.Equal(oidSHA384) {
+		h := sha512.Sum384(detachedData)
 		expectedDigest = h[:]
 	} else if si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
 		h := sha512.Sum512(detachedData)
@@ -458,8 +520,6 @@ func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
 	}
 
 	// Constant-time comparison for defense in depth
-	// Note: This is not strictly necessary for comparing public digests,
-	// but we keep it for consistency and defensive programming
 	if subtle.ConstantTimeCompare(messageDigest, expectedDigest) != 1 {
 		return NewSignatureError(internal.SigTypeCMS,
 			"message digest mismatch", nil)
@@ -578,7 +638,7 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 	}
 
 	// Step 7: Verify message digest (if SignedAttrs present)
-	if err := verifyMessageDigest(si, detachedData); err != nil {
+	if err := verifyMessageDigest(si, detachedData, sd.EncapContentInfo.ContentType); err != nil {
 		return nil, err
 	}
 
@@ -756,6 +816,76 @@ func parseSignedAttributes(signedAttrs []byte) ([]attribute, error) {
 	}
 
 	return attrs, nil
+}
+
+// validateAttributeSetOrder verifies that SignedAttributes are in DER canonical order
+// RFC 5652 requires SET OF to be sorted by DER encoding
+func validateAttributeSetOrder(signedAttrs []byte) error {
+	// Extract content from IMPLICIT [0]
+	content := unwrapContext0(signedAttrs)
+	if content == nil {
+		return NewValidationError("SignedAttributes", "",
+			"failed to extract content from IMPLICIT [0]", nil)
+	}
+
+	// Parse attributes and track their DER encodings
+	var encodings [][]byte
+	remaining := content
+
+	for len(remaining) > 0 {
+		// Find the start of this attribute
+		startPos := len(content) - len(remaining)
+
+		var attr attribute
+		rest, err := asn1.Unmarshal(remaining, &attr)
+		if err != nil {
+			return NewValidationError("SignedAttributes", "",
+				"failed to unmarshal attribute", err)
+		}
+
+		// Extract the DER encoding of this attribute
+		attrLen := len(remaining) - len(rest)
+		encoding := content[startPos : startPos+attrLen]
+
+		encodings = append(encodings, encoding)
+		remaining = rest
+	}
+
+	// Verify SET OF ordering (lexicographic byte order)
+	for i := 1; i < len(encodings); i++ {
+		if compareBytes(encodings[i-1], encodings[i]) >= 0 {
+			return NewValidationError("SignedAttributes", "",
+				"attributes not in DER canonical order (RFC 5652 requires sorted SET OF)", nil)
+		}
+	}
+
+	return nil
+}
+
+// compareBytes performs lexicographic comparison of byte slices
+// Returns -1 if a < b, 0 if a == b, 1 if a > b
+func compareBytes(a, b []byte) int {
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+
+	for i := 0; i < minLen; i++ {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	return 0
 }
 
 // constantTimeCompareBigInt performs constant-time comparison of two big integers

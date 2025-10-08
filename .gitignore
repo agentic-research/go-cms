@@ -53,7 +53,7 @@ Thumbs.db
 .claude/
 
 # Logs from agentic workflows and investigations
-*_agent_log.md
+*_agent_log/*
 INVESTIGATION_LOG.md
 experiments/*
 

@@ -45,6 +45,7 @@ var (
 	oidAttributeMessageDigest = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 4}
 	oidAttributeSigningTime   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 5}
 	oidSHA256                 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}
+	oidSHA384                 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 2}
 	oidSHA512                 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 3} // RFC 8419 requirement for Ed25519
 	oidEd25519                = asn1.ObjectIdentifier{1, 3, 101, 112}
 )
@@ -78,6 +79,24 @@ type SignOptions struct {
 	// If nil, time.Now() is used. For production use, consider using a
 	// secure time source synchronized with a trusted time server.
 	TimeSource TimeSource
+
+	// DigestAlgorithm specifies the hash algorithm to use for message digest.
+	// Supported values: crypto.SHA256, crypto.SHA512, crypto.SHA384
+	// Default: crypto.SHA256 (recommended for Ed25519 OpenSSL compatibility)
+	//
+	// Note: Ed25519 is a "pure" signature scheme that internally uses SHA-512.
+	// Using SHA-512 as the digest algorithm causes double-hashing, which breaks
+	// verification in OpenSSL's CMS implementation. This is an OpenSSL CMS-specific
+	// issue, not a general cryptographic limitation of Ed25519. SHA-256 is recommended
+	// for interoperability with OpenSSL CMS.
+	DigestAlgorithm crypto.Hash
+
+	// IntermediateCerts are additional certificates to include in the CMS structure.
+	// These should be intermediate CA certificates in the chain from the signer
+	// certificate to the root CA. The signer certificate (passed to SignData) is
+	// always included; these are additional certificates to help verifiers build
+	// the certificate chain.
+	IntermediateCerts []*x509.Certificate
 }
 
 // SignData creates a detached CMS/PKCS#7 signature using Ed25519.
@@ -152,11 +171,59 @@ func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519
 			"must be Ed25519", nil)
 	}
 
+	// Validate private key matches certificate public key (if public key is present)
+	// Note: This is best-effort validation. If PublicKey is nil (e.g., for certificate templates),
+	// the validation is skipped. Signature verification will still fail if keys don't match.
+	if cert.PublicKey != nil {
+		var certPubKeyBytes []byte
+		switch pub := cert.PublicKey.(type) {
+		case ed25519.PublicKey:
+			certPubKeyBytes = pub
+		default:
+			return nil, NewKeyError("validate certificate public key", "Ed25519",
+				fmt.Errorf("certificate public key is not Ed25519"))
+		}
+
+		derivedPubKey := privateKey.Public().(ed25519.PublicKey)
+		if !bytes.Equal(certPubKeyBytes, derivedPubKey) {
+			return nil, NewKeyError("validate key pair", "Ed25519",
+				fmt.Errorf("private key does not match certificate public key"))
+		}
+	}
+
+	// Validate certificate KeyUsage includes DigitalSignature if KeyUsage extension is present
+	if cert.KeyUsage != 0 && (cert.KeyUsage&x509.KeyUsageDigitalSignature) == 0 {
+		return nil, NewValidationError("certificate.KeyUsage",
+			fmt.Sprintf("%d", cert.KeyUsage),
+			"must include DigitalSignature (0x0001) for signing operations", nil)
+	}
+
+	// Determine digest algorithm (default to SHA-256)
+	digestAlg := opts.DigestAlgorithm
+	if digestAlg == 0 {
+		digestAlg = crypto.SHA256
+	}
+
+	// Validate digest algorithm
+	var digestOID asn1.ObjectIdentifier
+	switch digestAlg {
+	case crypto.SHA256:
+		digestOID = oidSHA256
+	case crypto.SHA384:
+		digestOID = oidSHA384
+	case crypto.SHA512:
+		digestOID = oidSHA512
+	default:
+		return nil, NewValidationError("DigestAlgorithm",
+			digestAlg.String(),
+			"must be SHA-256, SHA-384, or SHA-512", nil)
+	}
+
 	// 1. Calculate message digest
-	// Note: RFC 8419 recommends SHA-512 for Ed25519, but we use SHA-256 for OpenSSL compatibility
+	// Note: RFC 8419 recommends SHA-512 for Ed25519, but SHA-256 is default for OpenSSL compatibility
 	// Ed25519 is a "pure" signature scheme that internally uses SHA-512, so specifying SHA-512
 	// as the digest algorithm causes double-hashing which breaks OpenSSL verification
-	hash := crypto.SHA256.New()
+	hash := digestAlg.New()
 	hash.Write(data)
 	messageDigest := hash.Sum(nil)
 
@@ -191,13 +258,13 @@ func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519
 	}
 
 	// 6. Build SignerInfo with the IMPLICIT encoded attributes
-	signerInfo, err := buildSignerInfo(cert, implicitAttrs, signature)
+	signerInfo, err := buildSignerInfo(cert, implicitAttrs, signature, digestOID)
 	if err != nil {
 		return nil, err
 	}
 
 	// 7. Build complete CMS structure
-	cmsBytes, err := buildCMS(cert, signerInfo)
+	cmsBytes, err := buildCMS(cert, signerInfo, digestOID, opts.IntermediateCerts)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +390,7 @@ func encodeSignedAttributesImplicit(attrs []attribute) ([]byte, error) {
 }
 
 // buildSignerInfo manually constructs SignerInfo with proper IMPLICIT [0] for signedAttrs
-func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature []byte) ([]byte, error) {
+func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature []byte, digestOID asn1.ObjectIdentifier) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Version (INTEGER 1)
@@ -347,9 +414,9 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 	}
 	buf.Write(issuerBytes)
 
-	// DigestAlgorithm - Using SHA-256 for OpenSSL compatibility
+	// DigestAlgorithm
 	digestAlg := pkix.AlgorithmIdentifier{
-		Algorithm: oidSHA256,
+		Algorithm: digestOID,
 		// Parameters must be absent (not NULL) per RFC 8419
 	}
 	digestAlgBytes, err := asn1.Marshal(digestAlg)
@@ -385,7 +452,7 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 }
 
 // buildCMS builds the complete CMS ContentInfo structure
-func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
+func buildCMS(cert *x509.Certificate, signerInfo []byte, digestOID asn1.ObjectIdentifier, intermediateCerts []*x509.Certificate) ([]byte, error) {
 	// Build SignedData
 	var sdBuf bytes.Buffer
 
@@ -396,9 +463,9 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	}
 	sdBuf.Write(versionBytes)
 
-	// DigestAlgorithms (SET OF AlgorithmIdentifier) - Using SHA-256 for OpenSSL compatibility
+	// DigestAlgorithms (SET OF AlgorithmIdentifier)
 	digestAlgs := []pkix.AlgorithmIdentifier{{
-		Algorithm: oidSHA256,
+		Algorithm: digestOID,
 		// Parameters must be absent (not NULL) per RFC 8419
 	}}
 	digestAlgsBytes, err := asn1.Marshal(digestAlgs)
@@ -432,7 +499,12 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	// without introducing an inner SET. Emitting A0..<len>..31 would cause
 	// decoders such as OpenSSL to reject the structure with
 	// CMS_CertificateChoices errors.
-	certPayload := cert.Raw
+	// Include signer certificate and any intermediate certificates
+	var certPayload []byte
+	certPayload = append(certPayload, cert.Raw...)
+	for _, intermediateCert := range intermediateCerts {
+		certPayload = append(certPayload, intermediateCert.Raw...)
+	}
 
 	certHeader := []byte{0xA0} // context-specific, constructed, tag 0
 	if len(certPayload) < 128 {
