@@ -51,24 +51,28 @@
 - ✅ Test: TestVerifyRejectEd25519GarbageParams
 - ✅ Test: TestVerifyAcceptEd25519NullParams
 
-### 6. Signer Digest Policy
-**Location:** `pkg/cms/signer.go` (hardcoded SHA-256)
-**Fix:**
-- Add `SignOptions.DigestAlgorithm` (default SHA-256)
-- Support {SHA256, SHA512}
-- SHA-384 as opt-in flag (interop enhancement, not security)
+### ✅ 6. Signer Digest Policy [COMPLETED]
+**Location:** `pkg/cms/signer.go:82-89` (SignOptions)
+**Status:** FIXED in signer.go:191-210
+- ✅ Add `SignOptions.DigestAlgorithm` (default SHA-256)
+- ✅ Support {SHA256, SHA384, SHA512}
+- ✅ Test: TestSignDataWithSHA512
+- ✅ Test: TestSignDataWithSHA384
 
-### 7. Chain Inclusion Option
-**Location:** `pkg/cms/signer.go` (currently only includes leaf)
-**Fix:**
-- Add `SignOptions.IntermediateCerts []*x509.Certificate`
-- Append to Certificates field
+### ✅ 7. Chain Inclusion Option [COMPLETED]
+**Location:** `pkg/cms/signer.go:91-96` (SignOptions)
+**Status:** FIXED in signer.go:493-497
+- ✅ Add `SignOptions.IntermediateCerts []*x509.Certificate`
+- ✅ Append to Certificates field in buildCMS
+- ✅ Test: TestSignDataWithIntermediateCerts
 
-### 8. Signer Key Validation
-**Location:** `pkg/cms/signer.go:SignData`
-**Fix:**
-- Verify privkey matches cert.PublicKey
-- Check DigitalSignature KeyUsage if present
+### ✅ 8. Signer Key Validation [COMPLETED]
+**Location:** `pkg/cms/signer.go:172-189` (SignDataWithOptions)
+**Status:** FIXED in signer.go:172-195
+- ✅ Verify privkey matches cert.PublicKey (best-effort)
+- ✅ Check DigitalSignature KeyUsage if present
+- ✅ Test: TestSignDataRejectMismatchedKeys
+- ✅ Test: TestSignDataRejectMissingDigitalSignatureKeyUsage
 
 ---
 
@@ -95,7 +99,8 @@ SkipTimeValidation: false             // (add this option)
 - ❌ OpenSSL signer → Go verifier (NEEDED)
 - ❌ Go signer → OpenSSL verifier (NEEDED)
 - ✅ SignedAttrs with SHA-256
-- ❌ SignedAttrs with SHA-512
+- ✅ SignedAttrs with SHA-512
+- ✅ SignedAttrs with SHA-384
 - ✅ No SignedAttrs (raw signing)
 
 **Invalid (MUST reject):**
@@ -123,10 +128,10 @@ SkipTimeValidation: false             // (add this option)
 - ✅ Update VerifyOptions to fail closed
 - ✅ Override capability via KeyUsages option
 
-### Commit 3: Signer enhancements
-- Digest policy option
-- Chain inclusion
-- Key validation
+### ✅ Commit 3: Signer enhancements [COMPLETED]
+- ✅ Digest policy option (SHA-256/SHA-384/SHA-512)
+- ✅ Chain inclusion (IntermediateCerts)
+- ✅ Key validation (privkey match + KeyUsage check)
 
 ---
 
