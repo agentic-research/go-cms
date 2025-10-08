@@ -25,7 +25,8 @@ RUN chmod +x ./scripts/testing/*.sh
 
 # Default command runs the OpenSSL tests
 # Note: OpenSSL 3.x has known limitations with Ed25519 CMS verification
+# The test explicitly validates this expected failure
 RUN echo "Note: OpenSSL 3.x has known limitations with Ed25519 CMS verification" && \
-    echo "The library generates valid CMS structures, but OpenSSL verification may fail"
+    echo "The test suite validates this expected behavior"
 
-CMD ["bash", "-c", "./scripts/testing/test_cms_headers.sh || true; ./scripts/testing/test_openssl_verify.sh || true"]
+CMD ["bash", "-c", "./scripts/testing/test_cms_headers.sh || true; ./scripts/testing/test_openssl_verify.sh"]
