@@ -417,9 +417,13 @@ func TestVerifyRejectEd25519GarbageParams(t *testing.T) {
 
 	// Parse and corrupt SignatureAlgorithm.Parameters
 	var ci contentInfo
-	asn1.Unmarshal(sig, &ci)
+	if _, err := asn1.Unmarshal(sig, &ci); err != nil {
+		t.Fatalf("Failed to unmarshal contentInfo: %v", err)
+	}
 	var sd signedData
-	asn1.Unmarshal(ci.Content.Bytes, &sd)
+	if _, err := asn1.Unmarshal(ci.Content.Bytes, &sd); err != nil {
+		t.Fatalf("Failed to unmarshal signedData: %v", err)
+	}
 
 	// Inject garbage params (not NULL, not absent)
 	garbageParams, _ := asn1.Marshal(asn1.ObjectIdentifier{1, 2, 3})
@@ -466,9 +470,13 @@ func TestVerifyAcceptEd25519NullParams(t *testing.T) {
 
 	// Parse and set SignatureAlgorithm.Parameters to NULL
 	var ci contentInfo
-	asn1.Unmarshal(sig, &ci)
+	if _, err := asn1.Unmarshal(sig, &ci); err != nil {
+		t.Fatalf("Failed to unmarshal contentInfo: %v", err)
+	}
 	var sd signedData
-	asn1.Unmarshal(ci.Content.Bytes, &sd)
+	if _, err := asn1.Unmarshal(ci.Content.Bytes, &sd); err != nil {
+		t.Fatalf("Failed to unmarshal signedData: %v", err)
+	}
 
 	// Set params to ASN.1 NULL
 	nullParams, _ := asn1.Marshal(asn1.RawValue{Class: 0, Tag: 5}) // NULL

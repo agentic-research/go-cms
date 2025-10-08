@@ -824,7 +824,6 @@ func validateAttributeSetOrder(signedAttrs []byte) error {
 	}
 
 	// Parse attributes and track their DER encodings
-	var attrs []attribute
 	var encodings [][]byte
 	remaining := content
 
@@ -843,7 +842,6 @@ func validateAttributeSetOrder(signedAttrs []byte) error {
 		attrLen := len(remaining) - len(rest)
 		encoding := content[startPos : startPos+attrLen]
 
-		attrs = append(attrs, attr)
 		encodings = append(encodings, encoding)
 		remaining = rest
 	}
