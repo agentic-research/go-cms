@@ -63,7 +63,7 @@ const (
 var (
 	oidMD5  = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 5}
 	oidSHA1 = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
-	// oidSHA512, oidAttributeContentType, oidAttributeMessageDigest, oidData are defined in signer.go
+	// oidSHA256, oidSHA384, oidSHA512, oidAttributeContentType, oidAttributeMessageDigest, oidData are defined in signer.go
 )
 
 // ASN.1 structures for CMS/PKCS#7 parsing
@@ -188,10 +188,10 @@ func validateDigestAlgorithms(sd *signedData) error {
 			return NewValidationError("DigestAlgorithm",
 				"SHA-1", "weak algorithm not supported", nil)
 		}
-		// SHA-256 and SHA-512 are supported (SHA-512 required for Ed25519)
-		if !alg.Algorithm.Equal(oidSHA256) && !alg.Algorithm.Equal(oidSHA512) {
+		// SHA-256, SHA-384, and SHA-512 are supported
+		if !alg.Algorithm.Equal(oidSHA256) && !alg.Algorithm.Equal(oidSHA384) && !alg.Algorithm.Equal(oidSHA512) {
 			return NewValidationError("DigestAlgorithm",
-				alg.Algorithm.String(), "only SHA-256 and SHA-512 are supported", nil)
+				alg.Algorithm.String(), "only SHA-256, SHA-384, and SHA-512 are supported", nil)
 		}
 	}
 	return nil
@@ -210,10 +210,12 @@ func validateSignerInfo(sd *signedData) (*signerInfo, error) {
 	si := &sd.SignerInfos[0]
 
 	// Verify digest algorithm is supported
-	// For Ed25519, RFC 8419 requires SHA-512
-	if !si.DigestAlgorithm.Algorithm.Equal(oidSHA256) && !si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
+	// SHA-256, SHA-384, and SHA-512 are supported (RFC 8419 recommends SHA-512 for Ed25519)
+	if !si.DigestAlgorithm.Algorithm.Equal(oidSHA256) &&
+		!si.DigestAlgorithm.Algorithm.Equal(oidSHA384) &&
+		!si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
 		return nil, NewValidationError("DigestAlgorithm",
-			si.DigestAlgorithm.Algorithm.String(), "expected SHA-256 or SHA-512", nil)
+			si.DigestAlgorithm.Algorithm.String(), "expected SHA-256, SHA-384, or SHA-512", nil)
 	}
 
 	// RFC 5652 Section 5.1: Verify signer's digest algorithm is in SignedData digest algorithms
@@ -505,6 +507,9 @@ func verifyMessageDigest(si *signerInfo, detachedData []byte, expectedContentTyp
 	var expectedDigest []byte
 	if si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
 		h := sha256.Sum256(detachedData)
+		expectedDigest = h[:]
+	} else if si.DigestAlgorithm.Algorithm.Equal(oidSHA384) {
+		h := sha512.Sum384(detachedData)
 		expectedDigest = h[:]
 	} else if si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
 		h := sha512.Sum512(detachedData)
