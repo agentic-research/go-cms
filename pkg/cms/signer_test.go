@@ -2,6 +2,7 @@ package cms
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -845,4 +846,161 @@ func TestSignDataInputValidation(t *testing.T) {
 // contains checks if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
 	return bytes.Contains([]byte(s), []byte(substr))
+}
+
+// TestSignDataWithSigner tests the SignDataWithSigner function with a crypto.Signer
+func TestSignDataWithSigner(t *testing.T) {
+	// Generate a test keypair
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	// Create a test certificate
+	now := time.Now()
+	cert := &x509.Certificate{
+		SerialNumber:       big.NewInt(1),
+		Subject:            pkix.Name{CommonName: "Test Signer"},
+		NotBefore:          now.Add(-time.Hour),
+		NotAfter:           now.Add(time.Hour),
+		KeyUsage:           x509.KeyUsageDigitalSignature,
+		PublicKeyAlgorithm: x509.Ed25519,
+		PublicKey:          pub,
+	}
+
+	// Test data
+	data := []byte("test message for crypto.Signer")
+
+	// Sign using SignDataWithSigner (ed25519.PrivateKey implements crypto.Signer)
+	signature, err := SignDataWithSigner(data, cert, priv)
+	if err != nil {
+		t.Fatalf("SignDataWithSigner failed: %v", err)
+	}
+
+	// Verify the signature is valid DER-encoded CMS
+	var contentInfo struct {
+		ContentType asn1.ObjectIdentifier
+		Content     asn1.RawValue `asn1:"explicit,tag:0"`
+	}
+
+	rest, err := asn1.Unmarshal(signature, &contentInfo)
+	if err != nil {
+		t.Fatalf("Failed to parse CMS ContentInfo: %v", err)
+	}
+	if len(rest) > 0 {
+		t.Errorf("Unexpected bytes after ContentInfo: %d bytes", len(rest))
+	}
+
+	// Verify it's a SignedData content type
+	if !contentInfo.ContentType.Equal(oidSignedData) {
+		t.Errorf("Wrong content type: expected SignedData, got %v", contentInfo.ContentType)
+	}
+
+	t.Logf("✓ SignDataWithSigner produced valid CMS signature")
+	t.Logf("CMS signature length: %d bytes", len(signature))
+}
+
+// TestSignDataWithSignerInputValidation tests input validation for SignDataWithSigner
+func TestSignDataWithSignerInputValidation(t *testing.T) {
+	// Generate valid test data
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	validCert := &x509.Certificate{
+		SerialNumber:       big.NewInt(1),
+		Subject:            pkix.Name{CommonName: "Test"},
+		NotBefore:          time.Now().Add(-time.Hour),
+		NotAfter:           time.Now().Add(time.Hour),
+		KeyUsage:           x509.KeyUsageDigitalSignature,
+		PublicKeyAlgorithm: x509.Ed25519,
+		PublicKey:          pub,
+	}
+
+	validData := []byte("test message")
+
+	// Certificate without PublicKey field set (certificate template scenario)
+	certWithoutPubKey := &x509.Certificate{
+		SerialNumber:       big.NewInt(2),
+		Subject:            pkix.Name{CommonName: "Test Template"},
+		NotBefore:          time.Now().Add(-time.Hour),
+		NotAfter:           time.Now().Add(time.Hour),
+		KeyUsage:           x509.KeyUsageDigitalSignature,
+		PublicKeyAlgorithm: x509.Ed25519,
+		// PublicKey intentionally nil to test that code path
+	}
+
+	testCases := []struct {
+		name        string
+		data        []byte
+		cert        *x509.Certificate
+		signer      crypto.Signer
+		expectError bool
+		errorMatch  string
+	}{
+		{
+			name:        "valid inputs",
+			data:        validData,
+			cert:        validCert,
+			signer:      priv,
+			expectError: false,
+		},
+		{
+			name:        "valid inputs with nil PublicKey (certificate template)",
+			data:        validData,
+			cert:        certWithoutPubKey,
+			signer:      priv,
+			expectError: false,
+		},
+		{
+			name:        "nil certificate",
+			data:        validData,
+			cert:        nil,
+			signer:      priv,
+			expectError: true,
+			errorMatch:  "certificate",
+		},
+		{
+			name:        "nil signer",
+			data:        validData,
+			cert:        validCert,
+			signer:      nil,
+			expectError: true,
+			errorMatch:  "signer",
+		},
+		{
+			name:        "nil data",
+			data:        nil,
+			cert:        validCert,
+			signer:      priv,
+			expectError: true,
+			errorMatch:  "data",
+		},
+		{
+			name:        "empty data (should succeed)",
+			data:        []byte{},
+			cert:        validCert,
+			signer:      priv,
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := SignDataWithSigner(tc.data, tc.cert, tc.signer)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tc.errorMatch)
+				} else if tc.errorMatch != "" && !contains(err.Error(), tc.errorMatch) {
+					t.Errorf("Expected error containing %q, got: %v", tc.errorMatch, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
+	}
 }
