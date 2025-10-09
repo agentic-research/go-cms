@@ -317,7 +317,9 @@ func SignDataWithSigner(data []byte, cert *x509.Certificate, signer crypto.Signe
 			"must be Ed25519", nil)
 	}
 
-	// Validate signer's public key matches certificate public key
+	// Validate signer's public key matches certificate public key (if public key is present)
+	// Note: This is best-effort validation. If PublicKey is nil (e.g., for certificate templates),
+	// the validation is skipped. Signature verification will still fail if keys don't match.
 	if cert.PublicKey != nil {
 		var certPubKeyBytes []byte
 		switch pub := cert.PublicKey.(type) {
