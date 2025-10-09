@@ -272,6 +272,140 @@ func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519
 	return cmsBytes, nil
 }
 
+// SignDataWithSigner creates a detached CMS/PKCS#7 signature using a crypto.Signer.
+//
+// This function enables hardware-backed signing (e.g., PKCS#11, HSMs) by accepting
+// the standard crypto.Signer interface instead of requiring direct access to the
+// private key material.
+//
+// Parameters:
+//   - data: The data to be signed
+//   - cert: The X.509 certificate containing the public key
+//   - signer: A crypto.Signer implementation (e.g., ed25519.PrivateKey)
+//
+// Returns:
+//   - DER-encoded CMS/PKCS#7 signature
+func SignDataWithSigner(data []byte, cert *x509.Certificate, signer crypto.Signer) ([]byte, error) {
+	// Input validation
+	if cert == nil {
+		return nil, NewValidationError("certificate", "nil", "must not be nil", nil)
+	}
+	if signer == nil {
+		return nil, NewValidationError("signer", "nil", "must not be nil", nil)
+	}
+	if data == nil {
+		return nil, NewValidationError("data", "nil", "must not be nil", nil)
+	}
+
+	// Validate certificate is currently valid
+	now := time.Now()
+	if cert.NotAfter.Before(now) {
+		return nil, NewValidationError("certificate",
+			fmt.Sprintf("expired at %s", cert.NotAfter),
+			"certificate has expired", nil)
+	}
+	if cert.NotBefore.After(now) {
+		return nil, NewValidationError("certificate",
+			fmt.Sprintf("not valid until %s", cert.NotBefore),
+			"certificate is not yet valid", nil)
+	}
+
+	// Validate certificate uses Ed25519
+	if cert.PublicKeyAlgorithm != x509.Ed25519 {
+		return nil, NewValidationError("certificate.PublicKeyAlgorithm",
+			cert.PublicKeyAlgorithm.String(),
+			"must be Ed25519", nil)
+	}
+
+	// Validate signer's public key matches certificate public key
+	if cert.PublicKey != nil {
+		var certPubKeyBytes []byte
+		switch pub := cert.PublicKey.(type) {
+		case ed25519.PublicKey:
+			certPubKeyBytes = pub
+		default:
+			return nil, NewKeyError("validate certificate public key", "Ed25519",
+				fmt.Errorf("certificate public key is not Ed25519"))
+		}
+
+		signerPubKey := signer.Public()
+		var signerPubKeyBytes []byte
+		switch pub := signerPubKey.(type) {
+		case ed25519.PublicKey:
+			signerPubKeyBytes = pub
+		default:
+			return nil, NewKeyError("validate signer public key", "Ed25519",
+				fmt.Errorf("signer public key is not Ed25519"))
+		}
+
+		if !bytes.Equal(certPubKeyBytes, signerPubKeyBytes) {
+			return nil, NewKeyError("validate key pair", "Ed25519",
+				fmt.Errorf("signer public key does not match certificate public key"))
+		}
+	}
+
+	// Validate certificate KeyUsage includes DigitalSignature if KeyUsage extension is present
+	if cert.KeyUsage != 0 && (cert.KeyUsage&x509.KeyUsageDigitalSignature) == 0 {
+		return nil, NewValidationError("certificate.KeyUsage",
+			fmt.Sprintf("%d", cert.KeyUsage),
+			"must include DigitalSignature (0x0001) for signing operations", nil)
+	}
+
+	// Use SHA-256 as the digest algorithm for OpenSSL compatibility
+	digestAlg := crypto.SHA256
+	digestOID := oidSHA256
+
+	// 1. Calculate message digest
+	hash := digestAlg.New()
+	hash.Write(data)
+	messageDigest := hash.Sum(nil)
+
+	// 2. Determine signing time
+	signingTime := time.Now()
+
+	// 3. Create signed attributes
+	signedAttrs, err := createSignedAttributes(messageDigest, signingTime)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Encode attributes as SET for signing (with SET tag)
+	setForSigning, err := encodeAttributesAsSet(signedAttrs)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to encode attributes as SET", err)
+	}
+
+	// 5. Sign the SET OF attributes using the signer
+	// Note: For Ed25519, the opts parameter is ignored, so crypto.Hash(0) is appropriate
+	signature, err := signer.Sign(nil, setForSigning, crypto.Hash(0))
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to create signature", err)
+	}
+	if signature == nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "signature is nil", nil)
+	}
+
+	// 6. Encode attributes as [0] IMPLICIT for storage in SignerInfo
+	implicitAttrs, err := encodeSignedAttributesImplicit(signedAttrs)
+	if err != nil {
+		return nil, NewSignatureError(internal.SigTypeCMS, "failed to encode attributes as IMPLICIT", err)
+	}
+
+	// 7. Build SignerInfo with the IMPLICIT encoded attributes
+	signerInfo, err := buildSignerInfo(cert, implicitAttrs, signature, digestOID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 8. Build complete CMS structure
+	cmsBytes, err := buildCMS(cert, signerInfo, digestOID, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return cmsBytes, nil
+}
+
 // attribute represents a CMS attribute
 type attribute struct {
 	Type  asn1.ObjectIdentifier
