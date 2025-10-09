@@ -920,6 +920,17 @@ func TestSignDataWithSignerInputValidation(t *testing.T) {
 
 	validData := []byte("test message")
 
+	// Certificate without PublicKey field set (certificate template scenario)
+	certWithoutPubKey := &x509.Certificate{
+		SerialNumber:       big.NewInt(2),
+		Subject:            pkix.Name{CommonName: "Test Template"},
+		NotBefore:          time.Now().Add(-time.Hour),
+		NotAfter:           time.Now().Add(time.Hour),
+		KeyUsage:           x509.KeyUsageDigitalSignature,
+		PublicKeyAlgorithm: x509.Ed25519,
+		// PublicKey intentionally nil to test that code path
+	}
+
 	testCases := []struct {
 		name        string
 		data        []byte
@@ -932,6 +943,13 @@ func TestSignDataWithSignerInputValidation(t *testing.T) {
 			name:        "valid inputs",
 			data:        validData,
 			cert:        validCert,
+			signer:      priv,
+			expectError: false,
+		},
+		{
+			name:        "valid inputs with nil PublicKey (certificate template)",
+			data:        validData,
+			cert:        certWithoutPubKey,
 			signer:      priv,
 			expectError: false,
 		},
