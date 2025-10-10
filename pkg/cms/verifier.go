@@ -546,7 +546,17 @@ func prepareDataForVerification(si *signerInfo, detachedData []byte) ([]byte, er
 		return wrapAsSet(content), nil
 	}
 
-	// No SignedAttrs: signature is over content hash directly
+	// Case 2: No SignedAttrs
+	// RFC 8419 specifies PureEdDSA for Ed25519, which means:
+	// - For Ed25519: signature is over raw data (not pre-hashed)
+	// - For other algorithms: signature is over content hash
+	if si.SignatureAlgorithm.Algorithm.Equal(oidEd25519) {
+		// Ed25519 uses PureEdDSA - return raw data
+		// The ed25519.Verify function will hash internally
+		return detachedData, nil
+	}
+
+	// For non-Ed25519 algorithms, signature is over content hash
 	// Need to determine which hash algorithm was used
 	if si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
 		h := sha256.Sum256(detachedData)
