@@ -131,7 +131,7 @@ type VerifyOptions struct {
 	SkipTimeValidation bool               // Skip certificate expiry validation (useful for ephemeral certificate scenarios, e.g., short-lived certs in automation or Git commits)
 	KeyUsages          []x509.ExtKeyUsage // Required key usages
 	RevocationChecker  RevocationChecker  // Optional revocation checker (CRL/OCSP)
-	MaxSignatureSize   int64              // Maximum signature size in bytes (default: 10MB, prevents DoS)
+	MaxSignatureSize   int64              // Maximum signature size in bytes (default: 1MB, prevents DoS)
 }
 
 // parseContentInfo parses and validates the outer ContentInfo structure
@@ -168,11 +168,12 @@ func parseSignedData(ci *contentInfo) (*signedData, error) {
 		return nil, NewValidationError("SignedData", "", "trailing data", nil)
 	}
 
-	// Check SignedData version (RFC 5652: should be 1 for issuerAndSerialNumber)
-	if sd.Version != 1 {
-		return nil, NewValidationError("SignedData.Version",
-			fmt.Sprintf("%d", sd.Version), "expected version 1 (issuerAndSerialNumber)", nil)
-	}
+	// Do not enforce a specific SignedData.Version here; values vary with features per RFC 5652.
+	// Version can vary based on CMS features:
+	// - Version 1: Basic SignedData
+	// - Version 3: Contains SignerInfo with subjectKeyIdentifier
+	// - Version 4: Contains attribute certificates (v2)
+	// - Version 5: Contains SignerInfo with subjectKeyIdentifier AND attribute certificates
 
 	return &sd, nil
 }
@@ -208,6 +209,21 @@ func validateSignerInfo(sd *signedData) (*signerInfo, error) {
 	}
 
 	si := &sd.SignerInfos[0]
+
+	// Enforce SignerInfo version per SID form (RFC 5652 §5.3)
+	if si.SID.Tag == 0 && si.SID.Class == asn1ClassContext {
+		// subjectKeyIdentifier => version 3
+		if si.Version != 3 {
+			return nil, NewValidationError("SignerInfo.Version",
+				fmt.Sprintf("%d", si.Version), "expected version 3 for subjectKeyIdentifier", nil)
+		}
+	} else {
+		// issuerAndSerialNumber => version 1
+		if si.Version != 1 {
+			return nil, NewValidationError("SignerInfo.Version",
+				fmt.Sprintf("%d", si.Version), "expected version 1 for issuerAndSerialNumber", nil)
+		}
+	}
 
 	// Verify digest algorithm is supported
 	// SHA-256, SHA-384, and SHA-512 are supported (RFC 8419 recommends SHA-512 for Ed25519)
@@ -246,6 +262,24 @@ func validateSignerInfo(sd *signedData) (*signerInfo, error) {
 			return nil, NewValidationError("SignatureAlgorithm.Parameters",
 				fmt.Sprintf("%x", si.SignatureAlgorithm.Parameters.FullBytes),
 				"Ed25519 parameters must be absent or NULL", nil)
+		}
+	}
+
+	// RFC 8419 Section 3: For Ed25519 in CMS, the digest algorithm MUST be SHA-512
+	// when SignedAttrs are present (message-digest attr is SHA-512(eContent)).
+	if len(si.SignedAttrs.FullBytes) > 0 && si.SignatureAlgorithm.Algorithm.Equal(oidEd25519) {
+		if !si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
+			return nil, NewValidationError("DigestAlgorithm",
+				si.DigestAlgorithm.Algorithm.String(),
+				"Ed25519 with SignedAttrs requires SHA-512 (RFC 8419 Section 3)", nil)
+		}
+
+		// Additional strictness: ensure SignedData.DigestAlgorithms contains exactly SHA-512
+		// This prevents confusion where SignedData might list other algorithms that aren't used
+		if len(sd.DigestAlgorithms) != 1 || !sd.DigestAlgorithms[0].Algorithm.Equal(oidSHA512) {
+			return nil, NewValidationError("SignedData.DigestAlgorithms",
+				fmt.Sprintf("%d algorithm(s)", len(sd.DigestAlgorithms)),
+				"must contain exactly SHA-512 for Ed25519 with SignedAttrs (RFC 8419)", nil)
 		}
 	}
 
@@ -546,15 +580,29 @@ func prepareDataForVerification(si *signerInfo, detachedData []byte) ([]byte, er
 		return wrapAsSet(content), nil
 	}
 
-	// No SignedAttrs: signature is over content hash directly
+	// Case 2: No SignedAttrs
+	// RFC 8419 specifies PureEdDSA for Ed25519, which means:
+	// - For Ed25519: signature is over raw data (not pre-hashed)
+	// - For other algorithms: signature is over content hash
+	if si.SignatureAlgorithm.Algorithm.Equal(oidEd25519) {
+		// Ed25519 uses PureEdDSA - return raw data
+		// The ed25519.Verify function will hash internally
+		return detachedData, nil
+	}
+
+	// For non-Ed25519 algorithms, signature is over content hash
 	// Need to determine which hash algorithm was used
-	if si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
+	switch {
+	case si.DigestAlgorithm.Algorithm.Equal(oidSHA256):
 		h := sha256.Sum256(detachedData)
 		return h[:], nil
-	} else if si.DigestAlgorithm.Algorithm.Equal(oidSHA512) {
+	case si.DigestAlgorithm.Algorithm.Equal(oidSHA384):
+		h := sha512.Sum384(detachedData)
+		return h[:], nil
+	case si.DigestAlgorithm.Algorithm.Equal(oidSHA512):
 		h := sha512.Sum512(detachedData)
 		return h[:], nil
-	} else {
+	default:
 		return nil, NewValidationError("DigestAlgorithm",
 			si.DigestAlgorithm.Algorithm.String(), "unsupported algorithm", nil)
 	}

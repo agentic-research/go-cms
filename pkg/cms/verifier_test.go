@@ -614,7 +614,7 @@ func TestDigestExtraction(t *testing.T) {
 
 func TestVerifyNoSignedAttributes(t *testing.T) {
 	// This tests the edge case where SignedAttributes is absent
-	// In this case, the signature is directly over the hash of the data
+	// In this case, for Ed25519 (PureEdDSA), the signature is directly over the raw data
 	// Our current SignData always includes SignedAttributes, so we need
 	// to manually construct such a CMS for testing
 
@@ -622,11 +622,8 @@ func TestVerifyNoSignedAttributes(t *testing.T) {
 	rootCert, intermediateCert, leafCert, leafKey := createTestCertChain(t)
 	testData := []byte("Direct signed data")
 
-	// Calculate hash
-	h := sha256.Sum256(testData)
-
-	// Sign the hash directly
-	signature := ed25519.Sign(leafKey, h[:])
+	// For Ed25519 (PureEdDSA): Sign the raw data directly (not the hash)
+	signature := ed25519.Sign(leafKey, testData)
 
 	// Manually build SignerInfo without SignedAttrs
 	// Marshal issuerAndSerialNumber to RawValue
@@ -1003,9 +1000,8 @@ func TestVerifyWithoutSignedAttributesManual(t *testing.T) {
 	// Create detached data
 	detachedData := []byte("This data is signed directly without SignedAttributes")
 
-	// Calculate signature directly over SHA-256 hash of data
-	dataHash := sha256.Sum256(detachedData)
-	directSignature := ed25519.Sign(privateKey, dataHash[:])
+	// For Ed25519 (PureEdDSA): Sign raw data directly, not its hash
+	directSignature := ed25519.Sign(privateKey, detachedData)
 
 	// Manually construct SignerInfo WITHOUT SignedAttrs
 	// Marshal issuerAndSerialNumber to RawValue
