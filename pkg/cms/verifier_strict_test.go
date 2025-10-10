@@ -3,7 +3,7 @@ package cms
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -31,7 +31,7 @@ func TestVerifyRejectMissingContentType(t *testing.T) {
 
 	// Test data
 	data := []byte("test data")
-	digest := sha256.Sum256(data)
+	digest := sha512.Sum512(data)
 
 	// Build SignedAttrs WITHOUT content-type (only message-digest)
 	messageDigestValue, _ := asn1.Marshal(digest[:])
@@ -52,7 +52,7 @@ func TestVerifyRejectMissingContentType(t *testing.T) {
 	si := signerInfo{
 		Version:            1,
 		SID:                asn1.RawValue{FullBytes: mustMarshalIssuerAndSerial(t, cert.RawIssuer, cert.SerialNumber)},
-		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA256},
+		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA512},
 		SignedAttrs:        asn1.RawValue{FullBytes: signedAttrsImplicit},
 		SignatureAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidEd25519},
 		Signature:          signature,
@@ -60,7 +60,7 @@ func TestVerifyRejectMissingContentType(t *testing.T) {
 
 	sd := signedData{
 		Version:          1,
-		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}},
+		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA512}},
 		EncapContentInfo: encapsulatedContentInfo{ContentType: oidData},
 		Certificates:     mustEncodeCerts(t, []*x509.Certificate{cert}),
 		SignerInfos:      []signerInfo{si},
@@ -102,7 +102,7 @@ func TestVerifyRejectMismatchedContentType(t *testing.T) {
 	cert, _ = x509.ParseCertificate(certDER)
 
 	data := []byte("test data")
-	digest := sha256.Sum256(data)
+	digest := sha512.Sum512(data)
 
 	// Build SignedAttrs with WRONG content-type
 	wrongOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 3} // id-envelopedData
@@ -127,7 +127,7 @@ func TestVerifyRejectMismatchedContentType(t *testing.T) {
 	si := signerInfo{
 		Version:            1,
 		SID:                asn1.RawValue{FullBytes: mustMarshalIssuerAndSerial(t, cert.RawIssuer, cert.SerialNumber)},
-		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA256},
+		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA512},
 		SignedAttrs:        asn1.RawValue{FullBytes: signedAttrsImplicit},
 		SignatureAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidEd25519},
 		Signature:          signature,
@@ -135,7 +135,7 @@ func TestVerifyRejectMismatchedContentType(t *testing.T) {
 
 	sd := signedData{
 		Version:          1,
-		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}},
+		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA512}},
 		EncapContentInfo: encapsulatedContentInfo{ContentType: oidData},
 		Certificates:     mustEncodeCerts(t, []*x509.Certificate{cert}),
 		SignerInfos:      []signerInfo{si},
@@ -175,7 +175,7 @@ func TestVerifyRejectDuplicateMessageDigest(t *testing.T) {
 	cert, _ = x509.ParseCertificate(certDER)
 
 	data := []byte("test data")
-	digest := sha256.Sum256(data)
+	digest := sha512.Sum512(data)
 
 	contentTypeValue, _ := asn1.Marshal(oidData)
 	messageDigestValue, _ := asn1.Marshal(digest[:])
@@ -202,7 +202,7 @@ func TestVerifyRejectDuplicateMessageDigest(t *testing.T) {
 	si := signerInfo{
 		Version:            1,
 		SID:                asn1.RawValue{FullBytes: mustMarshalIssuerAndSerial(t, cert.RawIssuer, cert.SerialNumber)},
-		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA256},
+		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA512},
 		SignedAttrs:        asn1.RawValue{FullBytes: signedAttrsImplicit},
 		SignatureAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidEd25519},
 		Signature:          signature,
@@ -210,7 +210,7 @@ func TestVerifyRejectDuplicateMessageDigest(t *testing.T) {
 
 	sd := signedData{
 		Version:          1,
-		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}},
+		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA512}},
 		EncapContentInfo: encapsulatedContentInfo{ContentType: oidData},
 		Certificates:     mustEncodeCerts(t, []*x509.Certificate{cert}),
 		SignerInfos:      []signerInfo{si},
@@ -250,7 +250,7 @@ func TestVerifyRejectDuplicateContentType(t *testing.T) {
 	cert, _ = x509.ParseCertificate(certDER)
 
 	data := []byte("test data")
-	digest := sha256.Sum256(data)
+	digest := sha512.Sum512(data)
 
 	contentTypeValue, _ := asn1.Marshal(oidData)
 	messageDigestValue, _ := asn1.Marshal(digest[:])
@@ -277,7 +277,7 @@ func TestVerifyRejectDuplicateContentType(t *testing.T) {
 	si := signerInfo{
 		Version:            1,
 		SID:                asn1.RawValue{FullBytes: mustMarshalIssuerAndSerial(t, cert.RawIssuer, cert.SerialNumber)},
-		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA256},
+		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA512},
 		SignedAttrs:        asn1.RawValue{FullBytes: signedAttrsImplicit},
 		SignatureAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidEd25519},
 		Signature:          signature,
@@ -285,7 +285,7 @@ func TestVerifyRejectDuplicateContentType(t *testing.T) {
 
 	sd := signedData{
 		Version:          1,
-		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}},
+		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA512}},
 		EncapContentInfo: encapsulatedContentInfo{ContentType: oidData},
 		Certificates:     mustEncodeCerts(t, []*x509.Certificate{cert}),
 		SignerInfos:      []signerInfo{si},
@@ -325,7 +325,7 @@ func TestVerifyRejectNonCanonicalSetOrder(t *testing.T) {
 	cert, _ = x509.ParseCertificate(certDER)
 
 	data := []byte("test data")
-	digest := sha256.Sum256(data)
+	digest := sha512.Sum512(data)
 
 	contentTypeValue, _ := asn1.Marshal(oidData)
 	messageDigestValue, _ := asn1.Marshal(digest[:])
@@ -365,7 +365,7 @@ func TestVerifyRejectNonCanonicalSetOrder(t *testing.T) {
 	si := signerInfo{
 		Version:            1,
 		SID:                asn1.RawValue{FullBytes: mustMarshalIssuerAndSerial(t, cert.RawIssuer, cert.SerialNumber)},
-		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA256},
+		DigestAlgorithm:    pkix.AlgorithmIdentifier{Algorithm: oidSHA512},
 		SignedAttrs:        asn1.RawValue{FullBytes: signedAttrsImplicitBytes},
 		SignatureAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidEd25519},
 		Signature:          signature,
@@ -373,7 +373,7 @@ func TestVerifyRejectNonCanonicalSetOrder(t *testing.T) {
 
 	sd := signedData{
 		Version:          1,
-		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}},
+		DigestAlgorithms: []pkix.AlgorithmIdentifier{{Algorithm: oidSHA512}},
 		EncapContentInfo: encapsulatedContentInfo{ContentType: oidData},
 		Certificates:     mustEncodeCerts(t, []*x509.Certificate{cert}),
 		SignerInfos:      []signerInfo{si},

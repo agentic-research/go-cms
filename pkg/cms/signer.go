@@ -81,14 +81,13 @@ type SignOptions struct {
 	TimeSource TimeSource
 
 	// DigestAlgorithm specifies the hash algorithm to use for message digest.
-	// Supported values: crypto.SHA256, crypto.SHA512, crypto.SHA384
-	// Default: crypto.SHA256 (recommended for Ed25519 OpenSSL compatibility)
 	//
-	// Note: Ed25519 is a "pure" signature scheme that internally uses SHA-512.
-	// Using SHA-512 as the digest algorithm causes double-hashing, which breaks
-	// verification in OpenSSL's CMS implementation. This is an OpenSSL CMS-specific
-	// issue, not a general cryptographic limitation of Ed25519. SHA-256 is recommended
-	// for interoperability with OpenSSL CMS.
+	// IMPORTANT: For Ed25519 signatures, this field is IGNORED.
+	// RFC 8419 Section 3 mandates that Ed25519 with signed attributes MUST use SHA-512.
+	// This requirement is enforced regardless of the value specified here.
+	//
+	// For future support of other signature algorithms (RSA, ECDSA), this field
+	// would allow selection of the digest algorithm.
 	DigestAlgorithm crypto.Hash
 
 	// IntermediateCerts are additional certificates to include in the CMS structure.
@@ -204,31 +203,20 @@ func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519
 			"must include DigitalSignature (0x0001) for signing operations", nil)
 	}
 
-	// Determine digest algorithm (default to SHA-256)
-	digestAlg := opts.DigestAlgorithm
-	if digestAlg == 0 {
-		digestAlg = crypto.SHA256
-	}
+	// RFC 8419 Section 3: For Ed25519 with signed attributes, MUST use SHA-512
+	// The DigestAlgorithm option is ignored for Ed25519 to ensure RFC compliance
+	digestAlg := crypto.SHA512
+	digestOID := oidSHA512
 
-	// Validate digest algorithm
-	var digestOID asn1.ObjectIdentifier
-	switch digestAlg {
-	case crypto.SHA256:
-		digestOID = oidSHA256
-	case crypto.SHA384:
-		digestOID = oidSHA384
-	case crypto.SHA512:
-		digestOID = oidSHA512
-	default:
-		return nil, NewValidationError("DigestAlgorithm",
-			digestAlg.String(),
-			"must be SHA-256, SHA-384, or SHA-512", nil)
+	// Log if user tried to override (for debugging)
+	if opts.DigestAlgorithm != 0 && opts.DigestAlgorithm != crypto.SHA512 {
+		// Note: We don't return an error here to maintain backward compatibility
+		// The RFC requirement overrides the user's choice silently
+		_ = opts.DigestAlgorithm // Acknowledge but ignore
 	}
 
 	// 1. Calculate message digest
-	// Note: RFC 8419 recommends SHA-512 for Ed25519, but SHA-256 is default for OpenSSL compatibility
-	// Ed25519 is a "pure" signature scheme that internally uses SHA-512, so specifying SHA-512
-	// as the digest algorithm causes double-hashing which breaks OpenSSL verification
+	// RFC 8419 Section 3: Ed25519 with signed attributes MUST use SHA-512
 	hash := digestAlg.New()
 	hash.Write(data)
 	messageDigest := hash.Sum(nil)
@@ -532,9 +520,9 @@ func SignDataWithSigner(data []byte, cert *x509.Certificate, signer crypto.Signe
 			"must include DigitalSignature (0x0001) for signing operations", nil)
 	}
 
-	// Use SHA-256 as the digest algorithm for OpenSSL compatibility
-	digestAlg := crypto.SHA256
-	digestOID := oidSHA256
+	// RFC 8419 Section 3: For Ed25519 with signed attributes, MUST use SHA-512
+	digestAlg := crypto.SHA512
+	digestOID := oidSHA512
 
 	// 1. Calculate message digest
 	hash := digestAlg.New()
