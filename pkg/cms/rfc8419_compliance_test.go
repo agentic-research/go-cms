@@ -276,7 +276,7 @@ func buildManualCMSWithDigestAlg(t *testing.T, cert *x509.Certificate, signature
 		SerialNumber: cert.SerialNumber,
 	})
 	var sidRaw asn1.RawValue
-	asn1.Unmarshal(sidBytes, &sidRaw)
+	_, _ = asn1.Unmarshal(sidBytes, &sidRaw)
 
 	si := signerInfo{
 		Version:            1,
@@ -396,7 +396,7 @@ func buildCMSWithSignerInfoVersion(t *testing.T, cert *x509.Certificate, signatu
 			Issuer:       cert.Issuer.ToRDNSequence(),
 			SerialNumber: cert.SerialNumber,
 		})
-		asn1.Unmarshal(sidBytes, &sidRaw)
+		_, _ = asn1.Unmarshal(sidBytes, &sidRaw)
 	}
 
 	si := signerInfo{
@@ -458,7 +458,7 @@ func buildCMSWithSignedDataVersion(t *testing.T, cert *x509.Certificate, signatu
 		SerialNumber: cert.SerialNumber,
 	})
 	var sidRaw asn1.RawValue
-	asn1.Unmarshal(sidBytes, &sidRaw)
+	_, _ = asn1.Unmarshal(sidBytes, &sidRaw)
 
 	si := signerInfo{
 		Version:            1,

@@ -29,7 +29,7 @@ func TestOpenSSLCase2Interop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create test data file
 	testData := []byte("OpenSSL Case 2 interop test data")
@@ -184,19 +184,19 @@ func TestOpenSSLCase1vs2Comparison(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create test files
 	testData := []byte("Case 1 vs Case 2 comparison")
 	dataFile := filepath.Join(tmpDir, "data.txt")
-	os.WriteFile(dataFile, testData, 0644)
+	_ = os.WriteFile(dataFile, testData, 0644)
 
 	keyFile := filepath.Join(tmpDir, "key.pem")
 	certFile := filepath.Join(tmpDir, "cert.pem")
 
 	// Generate Ed25519 key and certificate
-	exec.Command("openssl", "genpkey", "-algorithm", "ED25519", "-out", keyFile).Run()
-	exec.Command("openssl", "req", "-new", "-x509", "-key", keyFile, "-out", certFile,
+	_ = exec.Command("openssl", "genpkey", "-algorithm", "ED25519", "-out", keyFile).Run()
+	_ = exec.Command("openssl", "req", "-new", "-x509", "-key", keyFile, "-out", certFile,
 		"-days", "1", "-subj", "/CN=test").Run()
 
 	// Create Case 1 signature (WITH signed attributes - default)
@@ -291,14 +291,14 @@ func TestGenerateOpenSSLCase2TestVector(t *testing.T) {
 	// Known test data
 	testData := []byte("Test vector data for Case 2")
 	dataFile := filepath.Join(tmpDir, "data.txt")
-	os.WriteFile(dataFile, testData, 0644)
+	_ = os.WriteFile(dataFile, testData, 0644)
 
 	// Generate key and certificate
 	keyFile := filepath.Join(tmpDir, "key.pem")
 	certFile := filepath.Join(tmpDir, "cert.pem")
 
-	exec.Command("openssl", "genpkey", "-algorithm", "ED25519", "-out", keyFile).Run()
-	exec.Command("openssl", "req", "-new", "-x509", "-key", keyFile, "-out", certFile,
+	_ = exec.Command("openssl", "genpkey", "-algorithm", "ED25519", "-out", keyFile).Run()
+	_ = exec.Command("openssl", "req", "-new", "-x509", "-key", keyFile, "-out", certFile,
 		"-days", "365", "-subj", "/CN=TestVector").Run()
 
 	// Create Case 2 signature
@@ -333,7 +333,7 @@ func TestGenerateOpenSSLCase2TestVector(t *testing.T) {
 		"-inkey", keyFile,
 		"-outform", "DER",
 		"-out", case1SigFile)
-	cmd.Run()
+	_ = cmd.Run()
 
 	t.Logf("Test vectors saved in: %s", tmpDir)
 	t.Log("You can inspect them with:")
