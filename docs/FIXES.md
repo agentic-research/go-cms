@@ -143,5 +143,3 @@ SkipTimeValidation: false             // (add this option)
 - Revocation checking (interface exists, caller's responsibility)
 
 ---
-
-**Ready for diffs? Say which commit you want first.**
