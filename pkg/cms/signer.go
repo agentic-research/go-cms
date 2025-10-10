@@ -210,9 +210,11 @@ func SignDataWithOptions(data []byte, cert *x509.Certificate, privateKey ed25519
 
 	// Log if user tried to override (for debugging)
 	if opts.DigestAlgorithm != 0 && opts.DigestAlgorithm != crypto.SHA512 {
-		// Note: We don't return an error here to maintain backward compatibility
-		// The RFC requirement overrides the user's choice silently
-		_ = opts.DigestAlgorithm // Acknowledge but ignore
+		// RFC 8419 Section 3 mandates SHA-512 for Ed25519 with signed attributes.
+		// We override any user-specified DigestAlgorithm to ensure RFC compliance.
+		// This is documented in the SignOptions.DigestAlgorithm field comment.
+		// Not returning an error maintains backward compatibility for existing code.
+		_ = opts.DigestAlgorithm // Acknowledge but ignore per RFC requirement
 	}
 
 	// 1. Calculate message digest
