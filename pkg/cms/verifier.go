@@ -44,7 +44,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/jamestexas/go-cms/pkg/cms/internal"
+	"github.com/agentic-research/go-cms/pkg/cms/internal"
 )
 
 // ASN.1 tag constants for better readability

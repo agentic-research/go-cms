@@ -16,7 +16,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jamestexas/go-cms/pkg/cms"
+	"github.com/agentic-research/go-cms/pkg/cms"
 )
 
 func main() {

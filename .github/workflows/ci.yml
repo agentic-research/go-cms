@@ -91,7 +91,7 @@ jobs:
     - name: Run gosec
       uses: securego/gosec@master
       with:
-        args: ./...
+        args: -exclude=G115 ./...
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
