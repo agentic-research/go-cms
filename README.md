@@ -1,6 +1,6 @@
 # 🛡️ go-cms
 
-[![Version](https://img.shields.io/badge/version-v0.0.1-blue.svg)](https://github.com/jamestexas/go-cms/releases/tag/v0.0.1)
+[![Version](https://img.shields.io/badge/version-v0.0.1-blue.svg)](https://github.com/agentic-research/go-cms/releases/tag/v0.0.1)
 
 **A personal Go library for CMS/PKCS#7 with Ed25519 support.**
 
@@ -30,7 +30,7 @@ The library is functional and the API is stable. All tests pass, including OpenS
 ## Installation
 
 ```bash
-go get github.com/jamestexas/go-cms
+go get github.com/agentic-research/go-cms
 ```
 
 ## Quick Start
@@ -53,7 +53,7 @@ import (
     "os"
     "time"
 
-    "github.com/jamestexas/go-cms/pkg/cms"
+    "github.com/agentic-research/go-cms/pkg/cms"
 )
 
 func main() {
@@ -141,7 +141,7 @@ The library provides two main functions:
 - `cms.SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey) ([]byte, error)` - Creates a CMS signature
 - `cms.Verify(cmsData, originalData []byte, opts VerifyOptions) ([]*x509.Certificate, error)` - Verifies a CMS signature
 
-For detailed API documentation, see [pkg.go.dev](https://pkg.go.dev/github.com/jamestexas/go-cms/pkg/cms).
+For detailed API documentation, see [pkg.go.dev](https://pkg.go.dev/github.com/agentic-research/go-cms/pkg/cms).
 
 ## Limits
 

@@ -34,7 +34,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/jamestexas/go-cms/pkg/cms/internal"
+	"github.com/agentic-research/go-cms/pkg/cms/internal"
 )
 
 // OID definitions for CMS/PKCS#7
