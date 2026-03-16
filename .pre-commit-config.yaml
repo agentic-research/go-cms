@@ -1,4 +1,14 @@
 repos:
+  # Markdown formatting
+  - repo: https://github.com/hukkin/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          - mdformat-gfm==0.3.7
+          - mdformat-frontmatter==2.0.1
+        exclude: '^\.beads/'
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.5.0
     hooks:

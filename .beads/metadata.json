@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "go_cms",
+  "project_id": "7d166d3e-fc78-4ebe-ba98-c7b730e0776f"
+}
