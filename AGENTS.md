@@ -59,6 +59,7 @@ bd ready --json
 **Create new issues:**
 
 ```bash
+
 bd create "Issue title" --description="Detailed context" -t bug -p 1 --json
 bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
 ```
@@ -120,6 +121,7 @@ bd automatically syncs with git:
 - ❌ Do NOT create markdown TODO lists
 - ❌ Do NOT use external issue trackers
 - ❌ Do NOT duplicate tracking systems
+
 
 For more details, see README.md and docs/IMPLEMENTATION.md.
 

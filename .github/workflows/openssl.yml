@@ -13,10 +13,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.23'
 
@@ -34,13 +34,13 @@ jobs:
       continue-on-error: true
       run: |
         chmod +x ./scripts/testing/test_cms_headers.sh
-        ./scripts/testing/test_cms_headers.sh || echo "⚠️  Test skipped (known OpenSSL 3.x Ed25519 limitation)"
+        ./scripts/testing/test_cms_headers.sh || echo "Test skipped (known OpenSSL 3.x Ed25519 limitation)"
 
     - name: Run OpenSSL verify test
       continue-on-error: true
       run: |
         chmod +x ./scripts/testing/test_openssl_verify.sh
-        ./scripts/testing/test_openssl_verify.sh || echo "⚠️  Test skipped (known OpenSSL 3.x Ed25519 limitation)"
+        ./scripts/testing/test_openssl_verify.sh || echo "Test skipped (known OpenSSL 3.x Ed25519 limitation)"
 
     - name: Test CMS signature generation and verification
       continue-on-error: true
@@ -52,14 +52,14 @@ jobs:
         echo "Test data for CMS signature" > test_data.txt
 
         # Verify with OpenSSL (detached signature)
-        openssl cms -verify -inform DER -in test.der -content test_data.txt -noverify -binary || echo "⚠️  OpenSSL verification failed (known limitation)"
+        openssl cms -verify -inform DER -in test.der -content test_data.txt -noverify -binary || echo "OpenSSL verification failed (known limitation)"
 
         # Show ASN.1 structure
         openssl asn1parse -inform DER -in test.der -i | head -20
 
     - name: Upload test artifacts
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: openssl-test-artifacts
         path: |
