@@ -59,9 +59,12 @@ bd ready --json
 **Create new issues:**
 
 ```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
+
+bd create "Issue title" --description="Detailed context" -t bug -p 1 --json
 bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
 ```
+
+Valid issue types for `-t` are: `bug`, `feature`, `task`. Priority `-p` is an integer from `0` (lowest) to `4` (highest).
 
 **Claim and update:**
 
@@ -119,7 +122,8 @@ bd automatically syncs with git:
 - ❌ Do NOT use external issue trackers
 - ❌ Do NOT duplicate tracking systems
 
-For more details, see README.md and docs/QUICKSTART.md.
+
+For more details, see README.md and docs/IMPLEMENTATION.md.
 
 ## Landing the Plane (Session Completion)
 
