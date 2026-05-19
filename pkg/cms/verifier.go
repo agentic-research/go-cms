@@ -168,12 +168,18 @@ func parseSignedData(ci *contentInfo) (*signedData, error) {
 		return nil, NewValidationError("SignedData", "", "trailing data", nil)
 	}
 
-	// Do not enforce a specific SignedData.Version here; values vary with features per RFC 5652.
-	// Version can vary based on CMS features:
-	// - Version 1: Basic SignedData
-	// - Version 3: Contains SignerInfo with subjectKeyIdentifier
-	// - Version 4: Contains attribute certificates (v2)
-	// - Version 5: Contains SignerInfo with subjectKeyIdentifier AND attribute certificates
+	// RFC 5652 §5.1: SignedData.Version must be one of {1, 3, 4, 5} depending
+	// on which features are present. Any other value (including negatives and
+	// large positives produced by single-byte tampering of the INTEGER
+	// payload) must be rejected.
+	switch sd.Version {
+	case 1, 3, 4, 5:
+		// permitted by spec
+	default:
+		return nil, NewValidationError("SignedData.Version",
+			fmt.Sprintf("%d", sd.Version),
+			"invalid SignedData version (RFC 5652 §5.1: expected 1, 3, 4, or 5)", nil)
+	}
 
 	return &sd, nil
 }
@@ -470,7 +476,17 @@ func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certi
 // verifyMessageDigest verifies the message digest in signed attributes if present
 func verifyMessageDigest(si *signerInfo, detachedData []byte, expectedContentType asn1.ObjectIdentifier) error {
 	if len(si.SignedAttrs.FullBytes) == 0 {
-		return nil // No signed attributes, nothing to verify
+		// RFC 5652 §11.1: a signedAttributes contentType attribute MUST be
+		// present unless the eContentType is id-data. Equivalently, when
+		// signedAttributes are absent (Case 2), the encapsulated content type
+		// MUST be id-data. Without this check, an attacker can flip bytes in
+		// the EncapContentInfo OID without invalidating the signature.
+		if !expectedContentType.Equal(oidData) {
+			return NewValidationError("EncapContentInfo.ContentType",
+				expectedContentType.String(),
+				"must be id-data when signedAttributes are absent (RFC 5652 §11.1)", nil)
+		}
+		return nil
 	}
 
 	// Parse signed attributes
