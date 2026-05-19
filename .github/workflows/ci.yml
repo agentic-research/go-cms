@@ -74,6 +74,10 @@ jobs:
       run: |
         go test -fuzz=FuzzVerify -fuzztime=10s ./pkg/cms
         go test -fuzz=FuzzParseASN1Length -fuzztime=10s ./pkg/cms
+        go test -fuzz=FuzzSignVerifyRoundtrip -fuzztime=10s ./pkg/cms
+        go test -fuzz=FuzzSignDataWithoutAttributesRoundtrip -fuzztime=10s ./pkg/cms
+        go test -fuzz=FuzzCertBagSubstitution -fuzztime=10s ./pkg/cms
+        go test -fuzz=FuzzReplaceOIDBytes -fuzztime=10s ./pkg/cms
 
   security:
     name: Security Scan
@@ -93,7 +97,19 @@ jobs:
     - name: Run gosec
       run: |
         go install github.com/securego/gosec/v2/cmd/gosec@v2.22.4
-        gosec -exclude=G115 ./...
+        # G115 (integer overflow on conversion) was previously excluded
+        # globally as a workaround for ASN.1 DER length-encoding code, but
+        # a full scan now yields 0 issues — the global exclude is no longer
+        # needed. If a legitimate G115 site appears later, suppress it
+        # locally with a `// #nosec G115 -- reason` comment rather than
+        # re-introducing the global mask.
+        gosec ./...
+
+    - name: Run govulncheck
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        # Surface stdlib and dependency CVEs reachable from our call graph.
+        govulncheck ./...
 
   lint:
     name: Lint
