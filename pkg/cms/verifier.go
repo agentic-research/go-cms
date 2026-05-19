@@ -49,12 +49,8 @@ import (
 
 // ASN.1 tag constants for better readability
 const (
-	tagSequence         = 0x30 // SEQUENCE tag
 	tagSet              = 0x31 // SET tag
 	tagContextSpecific0 = 0xA0 // CONTEXT SPECIFIC [0] tag
-	tagOctetString      = 0x04 // OCTET STRING tag
-	tagInteger          = 0x02 // INTEGER tag
-	tagBitString        = 0x03 // BIT STRING tag
 	tagSetTag           = 17   // SET tag value (for compound check)
 	asn1ClassContext    = 2    // Context-specific class
 )
@@ -168,12 +164,18 @@ func parseSignedData(ci *contentInfo) (*signedData, error) {
 		return nil, NewValidationError("SignedData", "", "trailing data", nil)
 	}
 
-	// Do not enforce a specific SignedData.Version here; values vary with features per RFC 5652.
-	// Version can vary based on CMS features:
-	// - Version 1: Basic SignedData
-	// - Version 3: Contains SignerInfo with subjectKeyIdentifier
-	// - Version 4: Contains attribute certificates (v2)
-	// - Version 5: Contains SignerInfo with subjectKeyIdentifier AND attribute certificates
+	// RFC 5652 §5.1: SignedData.Version must be one of {1, 3, 4, 5} depending
+	// on which features are present. Any other value (including negatives and
+	// large positives produced by single-byte tampering of the INTEGER
+	// payload) must be rejected.
+	switch sd.Version {
+	case 1, 3, 4, 5:
+		// permitted by spec
+	default:
+		return nil, NewValidationError("SignedData.Version",
+			fmt.Sprintf("%d", sd.Version),
+			"invalid SignedData version (RFC 5652 §5.1: expected 1, 3, 4, or 5)", nil)
+	}
 
 	return &sd, nil
 }
@@ -470,7 +472,17 @@ func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certi
 // verifyMessageDigest verifies the message digest in signed attributes if present
 func verifyMessageDigest(si *signerInfo, detachedData []byte, expectedContentType asn1.ObjectIdentifier) error {
 	if len(si.SignedAttrs.FullBytes) == 0 {
-		return nil // No signed attributes, nothing to verify
+		// RFC 5652 §11.1: a signedAttributes contentType attribute MUST be
+		// present unless the eContentType is id-data. Equivalently, when
+		// signedAttributes are absent (Case 2), the encapsulated content type
+		// MUST be id-data. Without this check, an attacker can flip bytes in
+		// the EncapContentInfo OID without invalidating the signature.
+		if !expectedContentType.Equal(oidData) {
+			return NewValidationError("EncapContentInfo.ContentType",
+				expectedContentType.String(),
+				"must be id-data when signedAttributes are absent (RFC 5652 §11.1)", nil)
+		}
+		return nil
 	}
 
 	// Parse signed attributes
@@ -717,9 +729,21 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 
 // Helper Functions
 
-// parseASN1Length parses ASN.1 DER/BER length encoding from data starting at offset
-// Returns the length value and new position after length bytes, or error if invalid
-// This function properly validates bounds to prevent panics from malformed input
+// parseASN1Length parses an ASN.1 DER length encoding from data starting at
+// offset. Returns the length value and the new position after the length
+// bytes, or an error if the encoding is invalid or non-canonical.
+//
+// RFC 5652 §10.1 mandates DER encoding for CMS SignedAttributes, and DER
+// requires *canonical* length encoding:
+//   - Lengths < 128 MUST use the short form (single byte).
+//   - Lengths >= 128 MUST use the long form with the minimum number of bytes
+//     (no leading zero bytes in the long-form length value).
+//
+// Accepting non-canonical forms creates a malleability surface: a single
+// CMS message could be re-encoded into structurally distinct but
+// cryptographically valid alternates, breaking content-addressing and
+// duplicate-detection guarantees built atop the CMS blob hash. We therefore
+// enforce DER canonicality at this internal helper boundary.
 func parseASN1Length(data []byte, offset int) (length int, newPos int, err error) {
 	if offset >= len(data) {
 		return 0, 0, fmt.Errorf("offset %d exceeds data length %d", offset, len(data))
@@ -728,18 +752,21 @@ func parseASN1Length(data []byte, offset int) (length int, newPos int, err error
 	pos := offset
 	firstByte := data[pos]
 
-	if firstByte < 0x80 {
-		// Short form: length is in single byte (0-127)
+	switch {
+	case firstByte < 0x80:
+		// Short form: length is in single byte (0-127). Canonical.
 		length = int(firstByte)
 		newPos = pos + 1
-	} else if firstByte == 0x80 {
-		// Indefinite length - not supported in DER
-		return 0, 0, fmt.Errorf("indefinite length encoding not supported")
-	} else {
-		// Long form: firstByte & 0x7f tells us number of length bytes
+
+	case firstByte == 0x80:
+		// Indefinite length — BER only, never DER.
+		return 0, 0, fmt.Errorf("indefinite length encoding not supported (DER required)")
+
+	default:
+		// Long form: firstByte & 0x7f tells us number of length bytes.
 		numBytes := int(firstByte & 0x7f)
 		if numBytes > 4 {
-			// We don't support lengths requiring more than 4 bytes (>4GB)
+			// We don't support lengths requiring more than 4 bytes (>4GB).
 			return 0, 0, fmt.Errorf("length encoding with %d bytes not supported", numBytes)
 		}
 
@@ -749,24 +776,34 @@ func parseASN1Length(data []byte, offset int) (length int, newPos int, err error
 				numBytes, pos+numBytes, len(data))
 		}
 
-		// Parse the length value with overflow protection
+		// DER canonicality: leading byte of long-form length MUST NOT be 0x00.
+		// (A leading zero means a shorter long-form encoding would suffice.)
+		if numBytes > 1 && data[pos] == 0x00 {
+			return 0, 0, fmt.Errorf("non-canonical DER: long-form length has leading zero byte")
+		}
+
+		// Parse the length value with overflow protection.
 		length = 0
 		for i := 0; i < numBytes; i++ {
-			// Check for integer overflow on 32-bit systems
-			// On 32-bit systems, int max is 2^31-1 (2147483647)
 			prevLength := length
 			length = (length << 8) | int(data[pos+i])
 
-			// Detect overflow: if length wrapped around to negative or decreased
+			// Detect overflow: if length wrapped around to negative or decreased.
 			if length < 0 || (prevLength > 0 && length < prevLength) {
 				return 0, 0, fmt.Errorf("integer overflow in length encoding")
 			}
 		}
 		newPos = pos + numBytes
+
+		// DER canonicality: long form must only be used when short form
+		// would not suffice (i.e., length >= 128).
+		if length < 0x80 {
+			return 0, 0, fmt.Errorf("non-canonical DER: long-form length %d must use short form", length)
+		}
 	}
 
-	// Critical: Validate length doesn't exceed remaining data
-	if newPos+length > len(data) || newPos+length < 0 { // Check for overflow in addition
+	// Critical: validate length doesn't exceed remaining data.
+	if newPos+length > len(data) || newPos+length < 0 { // overflow in addition
 		return 0, 0, fmt.Errorf("length %d exceeds remaining data %d", length, len(data)-newPos)
 	}
 
