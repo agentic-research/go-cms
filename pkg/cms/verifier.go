@@ -936,41 +936,18 @@ func validateAttributeSetOrder(signedAttrs []byte) error {
 		remaining = rest
 	}
 
-	// Verify SET OF ordering (lexicographic byte order)
+	// Verify SET OF ordering: DER requires strict ascending lexicographic
+	// order over the element encodings (RFC 5652 SignedAttributes is a
+	// SET OF, and §5.3 inherits DER from §10.1). bytes.Compare gives us
+	// exactly the lexicographic ordering specified.
 	for i := 1; i < len(encodings); i++ {
-		if compareBytes(encodings[i-1], encodings[i]) >= 0 {
+		if bytes.Compare(encodings[i-1], encodings[i]) >= 0 {
 			return NewValidationError("SignedAttributes", "",
 				"attributes not in DER canonical order (RFC 5652 requires sorted SET OF)", nil)
 		}
 	}
 
 	return nil
-}
-
-// compareBytes performs lexicographic comparison of byte slices
-// Returns -1 if a < b, 0 if a == b, 1 if a > b
-func compareBytes(a, b []byte) int {
-	minLen := len(a)
-	if len(b) < minLen {
-		minLen = len(b)
-	}
-
-	for i := 0; i < minLen; i++ {
-		if a[i] < b[i] {
-			return -1
-		}
-		if a[i] > b[i] {
-			return 1
-		}
-	}
-
-	if len(a) < len(b) {
-		return -1
-	}
-	if len(a) > len(b) {
-		return 1
-	}
-	return 0
 }
 
 // constantTimeCompareBigInt performs constant-time comparison of two big integers
