@@ -43,6 +43,16 @@ func newFuzzSigner(tb testing.TB) (*x509.Certificate, ed25519.PrivateKey, *x509.
 	return cert, priv, pool
 }
 
+// newPool builds a CertPool containing the given certs. Helper for fuzzers
+// that need to express different trust topologies.
+func newPool(certs ...*x509.Certificate) *x509.CertPool {
+	pool := x509.NewCertPool()
+	for _, c := range certs {
+		pool.AddCert(c)
+	}
+	return pool
+}
+
 // FuzzSignVerifyRoundtrip asserts the behavioral contract of the primary
 // signing entry point (SignData / Case 1, with signed attributes):
 //
