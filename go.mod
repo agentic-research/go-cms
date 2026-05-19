@@ -1,3 +1,3 @@
 module github.com/agentic-research/go-cms
 
-go 1.25.1
+go 1.25.5

@@ -12,7 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.22', '1.23', '1.25.1']
+        # Earlier Go versions remain in the matrix as portability smoke
+        # tests; with go.mod requiring go 1.25.5 they auto-toolchain-upgrade.
+        # '1.25' resolves to the latest 1.25.x patch so security fixes land
+        # in CI automatically without manual workflow edits.
+        go-version: ['1.21', '1.22', '1.23', '1.25']
 
     steps:
     - name: Checkout code
@@ -58,14 +62,14 @@ jobs:
 
     - name: Generate coverage HTML report
       run: go tool cover -html=coverage.out -o coverage.html
-      if: matrix.go-version == '1.25.1'
+      if: matrix.go-version == '1.25'
 
     - name: Upload coverage artifacts
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: coverage-${{ matrix.go-version }}
         path: coverage.html
-      if: matrix.go-version == '1.25.1'
+      if: matrix.go-version == '1.25'
 
     - name: Run benchmarks
       run: go test -bench=. -benchmem -benchtime=10s ./pkg/cms
@@ -92,7 +96,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
-        go-version: '1.25.1'
+        go-version: '1.25'
 
     - name: Run gosec
       run: |
@@ -122,7 +126,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
-        go-version: '1.25.1'
+        go-version: '1.25'
 
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
