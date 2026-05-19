@@ -76,12 +76,16 @@ jobs:
 
     - name: Run fuzz tests (short)
       run: |
-        go test -fuzz=FuzzVerify -fuzztime=10s ./pkg/cms
-        go test -fuzz=FuzzParseASN1Length -fuzztime=10s ./pkg/cms
-        go test -fuzz=FuzzSignVerifyRoundtrip -fuzztime=10s ./pkg/cms
-        go test -fuzz=FuzzSignDataWithoutAttributesRoundtrip -fuzztime=10s ./pkg/cms
-        go test -fuzz=FuzzCertBagSubstitution -fuzztime=10s ./pkg/cms
-        go test -fuzz=FuzzReplaceOIDBytes -fuzztime=10s ./pkg/cms
+        # Anchored regexes so e.g. ^FuzzVerify$ doesn't also match
+        # FuzzVerifyAcceptsOnlyCanonicalForm (go test -fuzz refuses
+        # when the pattern matches multiple fuzz targets).
+        go test -fuzz='^FuzzVerify$' -fuzztime=10s ./pkg/cms
+        go test -fuzz='^FuzzParseASN1Length$' -fuzztime=10s ./pkg/cms
+        go test -fuzz='^FuzzSignVerifyRoundtrip$' -fuzztime=10s ./pkg/cms
+        go test -fuzz='^FuzzSignDataWithoutAttributesRoundtrip$' -fuzztime=10s ./pkg/cms
+        go test -fuzz='^FuzzCertBagSubstitution$' -fuzztime=10s ./pkg/cms
+        go test -fuzz='^FuzzReplaceOIDBytes$' -fuzztime=10s ./pkg/cms
+        go test -fuzz='^FuzzVerifyAcceptsOnlyCanonicalForm$' -fuzztime=10s ./pkg/cms
 
   security:
     name: Security Scan
