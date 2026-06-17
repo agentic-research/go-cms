@@ -936,41 +936,18 @@ func validateAttributeSetOrder(signedAttrs []byte) error {
 		remaining = rest
 	}
 
-	// Verify SET OF ordering (lexicographic byte order)
+	// Verify SET OF ordering: DER requires strict ascending lexicographic
+	// order over the element encodings (RFC 5652 SignedAttributes is a
+	// SET OF, and §5.3 inherits DER from §10.1). bytes.Compare gives us
+	// exactly the lexicographic ordering specified.
 	for i := 1; i < len(encodings); i++ {
-		if compareBytes(encodings[i-1], encodings[i]) >= 0 {
+		if bytes.Compare(encodings[i-1], encodings[i]) >= 0 {
 			return NewValidationError("SignedAttributes", "",
 				"attributes not in DER canonical order (RFC 5652 requires sorted SET OF)", nil)
 		}
 	}
 
 	return nil
-}
-
-// compareBytes performs lexicographic comparison of byte slices
-// Returns -1 if a < b, 0 if a == b, 1 if a > b
-func compareBytes(a, b []byte) int {
-	minLen := len(a)
-	if len(b) < minLen {
-		minLen = len(b)
-	}
-
-	for i := 0; i < minLen; i++ {
-		if a[i] < b[i] {
-			return -1
-		}
-		if a[i] > b[i] {
-			return 1
-		}
-	}
-
-	if len(a) < len(b) {
-		return -1
-	}
-	if len(a) > len(b) {
-		return 1
-	}
-	return 0
 }
 
 // constantTimeCompareBigInt performs constant-time comparison of two big integers
@@ -1003,19 +980,29 @@ func constantTimeCompareBigInt(a, b *big.Int) bool {
 	return subtle.ConstantTimeCompare(aPadded, bPadded) == 1
 }
 
-// matchesSID verifies that SignerIdentifier matches certificate
-// Supports both issuerAndSerialNumber and subjectKeyIdentifier
-// Uses constant-time comparison for cryptographic values to prevent timing attacks
+// matchesSID verifies that SignerIdentifier matches certificate.
+// Supports both issuerAndSerialNumber and subjectKeyIdentifier per RFC 5652
+// §5.3. Uses constant-time comparison for cryptographic values to prevent
+// timing attacks.
 func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
-	// Check if this is a subjectKeyIdentifier (IMPLICIT [0] OCTET STRING)
+	// SubjectKeyIdentifier form: [0] IMPLICIT OCTET STRING.
+	//
+	// RFC 5652's ASN.1 module declares IMPLICIT TAGS, so the [0] tag
+	// REPLACES the OCTET STRING tag — the raw SKI bytes live directly
+	// inside the [0] tag with no nested OCTET STRING wrapping. That makes
+	// the encoding primitive (IsCompound == false) and sidRaw.Bytes the
+	// SKI value itself.
+	//
+	// An EXPLICIT-wrapped variant (`A0 <len> 04 <ski-len> <ski>`,
+	// IsCompound==true) is non-canonical under DER and would create a
+	// malleability surface, so we reject it. This also matches what
+	// OpenSSL and github.com/github/ietf-cms emit.
 	if sidRaw.Tag == 0 && sidRaw.Class == asn1ClassContext {
-		// This is a subjectKeyIdentifier
-		var keyID []byte
-		rest, err := asn1.Unmarshal(sidRaw.Bytes, &keyID)
-		if err != nil || len(rest) > 0 {
+		if sidRaw.IsCompound {
 			return false
 		}
-		// Use constant-time comparison for key IDs
+		keyID := sidRaw.Bytes
+		// Use constant-time comparison for key IDs.
 		if len(cert.SubjectKeyId) == 0 || len(keyID) != len(cert.SubjectKeyId) {
 			return false
 		}
