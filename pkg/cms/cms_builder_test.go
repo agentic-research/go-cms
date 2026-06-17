@@ -88,10 +88,13 @@ func newBuilderSigner(tb testing.TB) (*x509.Certificate, ed25519.PrivateKey, *x5
 		tb.Fatalf("ed25519.GenerateKey: %v", err)
 	}
 	// Compute a PKIX-standard SubjectKeyId (RFC 5280 §4.2.1.2 method 1:
-	// 160-bit SHA-1 of the DER-encoded subjectPublicKey BIT STRING value).
-	// SHA-1 is the IETF-blessed input here — it's an identifier, not a
-	// security primitive. Go's auto-SKI only triggers for IsCA=true certs,
-	// so we set it explicitly.
+	// 160-bit SHA-1 of the *contents* of the subjectPublicKey BIT STRING —
+	// i.e. the raw public-key bytes, excluding the BIT STRING tag, length,
+	// and unused-bits prefix. Ed25519 public keys ARE those raw bytes, so
+	// hashing priv.Public() directly matches the RFC. SHA-1 here is the
+	// IETF-blessed input — it's an identifier, not a security primitive.
+	// Go's auto-SKI only triggers for IsCA=true certs, so we set it
+	// explicitly.
 	skiSum := sha1.Sum(priv.Public().(ed25519.PublicKey)) // #nosec G401 -- see above
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(0xc115),

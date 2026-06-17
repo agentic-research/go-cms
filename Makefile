@@ -28,7 +28,7 @@ help:
 	@echo "Audit-level test targets:"
 	@echo "  make long-fuzz       - Run every fuzz target for FUZZTIME each"
 	@echo "                         (default 10m; override with FUZZTIME=30m or 1h)"
-	@echo "  make overnight-fuzz  - long-fuzz with FUZZTIME=1h per target (~12h total)"
+	@echo "  make overnight-fuzz  - long-fuzz with FUZZTIME=1h per target (~16h total)"
 	@echo "  make mutation-test   - Run gremlins mutation testing on pkg/cms"
 	@echo "  make govulncheck     - Surface stdlib/dependency CVEs"
 	@echo ""
@@ -102,17 +102,25 @@ long-fuzz:
 overnight-fuzz:
 	@$(MAKE) long-fuzz FUZZTIME=1h
 
+# go-installed tools live under GOBIN (or GOPATH/bin). Resolve absolute
+# paths so these targets work on fresh environments where that directory
+# isn't on PATH.
+GOBIN_DIR := $(shell $(GOCMD) env GOBIN)
+ifeq ($(strip $(GOBIN_DIR)),)
+GOBIN_DIR := $(shell $(GOCMD) env GOPATH)/bin
+endif
+
 # Mutation testing — verifies that the test suite would actually fail if
 # someone introduced a logic bug. Surviving mutants point at test gaps.
 mutation-test:
-	@which gremlins >/dev/null 2>&1 || $(GOCMD) install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+	@test -x $(GOBIN_DIR)/gremlins || $(GOCMD) install github.com/go-gremlins/gremlins/cmd/gremlins@latest
 	@echo "Running gremlins on pkg/cms (this can take several minutes)."
-	@cd pkg/cms && GOWORK=off gremlins unleash --timeout-coefficient 5
+	@cd pkg/cms && GOWORK=off $(GOBIN_DIR)/gremlins unleash --timeout-coefficient 5
 
 # govulncheck — surface stdlib and dependency CVEs reachable from our
 # call graph. Mirrors the CI check.
 govulncheck:
-	@which govulncheck >/dev/null 2>&1 || $(GOCMD) install golang.org/x/vuln/cmd/govulncheck@latest
-	govulncheck ./...
+	@test -x $(GOBIN_DIR)/govulncheck || $(GOCMD) install golang.org/x/vuln/cmd/govulncheck@latest
+	$(GOBIN_DIR)/govulncheck ./...
 
 .DEFAULT_GOAL := help
