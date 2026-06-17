@@ -55,11 +55,16 @@ type cmsBuildConfig struct {
 
 	// SIVersion overrides SignerInfo.Version. Zero means "derive from
 	// SIDForm" (1 for IAS, 3 for SKI). Tests that want to probe mismatch
-	// (e.g. SKI+version=1) set this explicitly.
-	SIVersion int
+	// (e.g. SKI+version=1) set this explicitly. Use SIVersionExplicit to
+	// force a literal 0 (e.g. to test rejection of v0).
+	SIVersion         int
+	SIVersionExplicit bool
 
 	// SDVersion overrides SignedData.Version. Zero means default of 1.
-	SDVersion int
+	// Use SDVersionExplicit to force a literal 0 (e.g. to test rejection
+	// of v0, which the deprecated legacy PKCS#7 SignedData used).
+	SDVersion         int
+	SDVersionExplicit bool
 
 	// EContentOID overrides EncapContentInfo.eContentType. Zero (nil)
 	// means oidData (1.2.840.113549.1.7.1).
@@ -136,7 +141,7 @@ func buildTestCMS(tb testing.TB, cert *x509.Certificate, priv ed25519.PrivateKey
 		data = []byte("builder-default-content")
 	}
 	siVersion := cfg.SIVersion
-	if siVersion == 0 {
+	if siVersion == 0 && !cfg.SIVersionExplicit {
 		if cfg.SIDForm == sidSKI {
 			siVersion = 3
 		} else {
@@ -144,7 +149,7 @@ func buildTestCMS(tb testing.TB, cert *x509.Certificate, priv ed25519.PrivateKey
 		}
 	}
 	sdVersion := cfg.SDVersion
-	if sdVersion == 0 {
+	if sdVersion == 0 && !cfg.SDVersionExplicit {
 		sdVersion = 1
 	}
 	eContentOID := cfg.EContentOID

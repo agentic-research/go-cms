@@ -119,6 +119,37 @@ jobs:
         # Surface stdlib and dependency CVEs reachable from our call graph.
         govulncheck ./...
 
+  mutation:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Set up Go
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      with:
+        go-version: '1.25'
+
+    - name: Install gremlins
+      run: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+
+    - name: Run mutation tests with efficacy gate
+      run: |
+        # Threshold of 80 reflects the post-round-4 baseline. Surviving
+        # mutants past this floor indicate test gaps that regress this
+        # branch's hardening work — a new PR that drops efficacy below
+        # 80% will fail this gate and require either killing the new
+        # mutants with tests or documenting why they're equivalent.
+        #
+        # --timeout-coefficient 30 because the package's test binary
+        # links cgo (race detector) and gremlins' default 2x baseline
+        # is too tight for clean runs on CI hardware.
+        cd pkg/cms && GOWORK=off gremlins unleash \
+          --timeout-coefficient 30 \
+          --threshold-efficacy 80
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
