@@ -149,8 +149,54 @@ The library enforces the following size limits for security:
 
 - **Maximum CMS signature size**: 1MB (prevents memory exhaustion from malformed signatures)
 - **Maximum certificate size**: 64KB (standard X.509 certificates are typically 1-4KB)
-- **Supported digest algorithm**: SHA-256 only (MD5 and SHA-1 are rejected)
+- **Supported digest algorithms**: SHA-256, SHA-384, SHA-512 (MD5 and SHA-1 are rejected; RFC 8419 mandates SHA-512 for Ed25519 with signedAttributes)
 - **Supported signature algorithm**: Ed25519 only
+
+## Testing & Hardening
+
+> **This library has not been independently audited.** What's described here is internal, audit-equivalent testing work done by the maintainer — not an external attestation.
+
+The repository ships with a layered test methodology designed to make the work defensible without the price tag of a third-party review:
+
+| Layer | What it does | Where |
+|---|---|---|
+| **Unit + roundtrip tests** | Sign/verify against RFC 8032 vectors, OpenSSL interop, expected-shape parsing | `pkg/cms/*_test.go` |
+| **Behavioral fuzzers** | Random data + ephemeral key → sign → verify; assert roundtrip and tamper-detection invariants | `pkg/cms/behavioral_fuzz_test.go`, `tier2_fuzz_test.go`, `tier3_fuzz_test.go` |
+| **RFC-traceable tests** | Named per RFC clause so you can `grep TestRFC5652_5_3` and see what's covered | `pkg/cms/rfc_compliance_test.go` |
+| **Named threat-class tests** | One test per documented CMS attack (replay, key confusion, trust bypass, etc.) | `pkg/cms/attack_scenarios_test.go` |
+| **DER strictness probes** | Reject non-canonical length encodings (BER) on the verifier side | `pkg/cms/der_strictness_test.go` |
+| **Byte-by-byte tamper enumeration** | Verifies every byte of a Case 1 / Case 2 CMS is load-bearing | `pkg/cms/tamper_enum_test.go` |
+| **Concurrent sign/verify under `-race`** | 32 goroutines × 200 verifications | `pkg/cms/concurrency_test.go` |
+| **Length-encoding boundary tests** | Byte-exact DER output at every length-form boundary (X.690 §8.1.3.4) | `pkg/cms/length_boundary_test.go` |
+| **CMS construction harness** | Test-only builder for reaching verifier paths the production signer can't emit (e.g. SKI form) | `pkg/cms/cms_builder_test.go` |
+| **Mutation testing with CI gate** | [`gremlins`](https://github.com/go-gremlins/gremlins) at ≥80% efficacy floor — see [MUTATION_BASELINE.md](MUTATION_BASELINE.md) | `.github/workflows/ci.yml` |
+| **Static analysis** | `gosec` (no exclusions), `govulncheck`, `golangci-lint` | `.github/workflows/ci.yml` |
+| **Toolchain CVE tracking** | `go.mod` pinned to a stdlib patch that clears all reachable CVEs surfaced by `govulncheck` | `go.mod` |
+
+Run the full audit-level suite locally:
+
+```bash
+make test            # full suite under -race with coverage
+make long-fuzz       # every fuzzer for 10m each (override FUZZTIME=)
+make overnight-fuzz  # FUZZTIME=1h per fuzzer (~16h total)
+make mutation-test   # gremlins mutation analysis
+make govulncheck     # stdlib + dependency CVE check
+make docker-test     # OpenSSL interop in a clean container
+```
+
+**Bugs found and fixed by this methodology** (all in this repo's git history):
+
+- `SignedData.Version` accepted any `int` instead of the RFC 5652 §5.1 whitelist of `{1, 3, 4, 5}` ([#13](https://github.com/agentic-research/go-cms/pull/13))
+- `EncapContentInfo.eContentType` was unchecked when `signedAttributes` were absent — RFC 5652 §11.1 requires `id-data` ([#13](https://github.com/agentic-research/go-cms/pull/13))
+- `parseASN1Length` accepted non-canonical DER length encodings, a malleability surface ([#13](https://github.com/agentic-research/go-cms/pull/13))
+- `matchesSID` expected EXPLICIT `[0]` wrapping of SubjectKeyIdentifier instead of the RFC-canonical IMPLICIT form — meaning the verifier could not validate SKI-form CMS produced by OpenSSL or `github.com/github/ietf-cms` ([#14](https://github.com/agentic-research/go-cms/pull/14))
+
+What this methodology does *not* cover:
+
+- **Cryptographic primitive correctness** (Ed25519, SHA-2 family) — covered by Go stdlib's own test suite.
+- **Side-channel resistance** beyond `crypto/subtle.ConstantTimeCompare` usage.
+- **Hardware Security Module integration** — out of scope.
+- **Formal protocol-level review of CMS embedding inside higher-level protocols** (S/MIME, CAdES, etc.) — out of scope.
 
 ## Security
 
